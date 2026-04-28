@@ -1,0 +1,14 @@
+services:
+  triage-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      TRACE_DIR: ${TRACE_DIR:-/app/traces}
+    volumes:
+      - ./fixtures:/app/fixtures:ro
+      - ./traces:/app/traces
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
