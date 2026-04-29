@@ -1,137 +1,296 @@
 # Local Multi-Agent CI/CD Failure Triage System
 
-This project is a locally hosted multi-agent system for automated CI/CD failure triage in software engineering and DevOps workflows.
+A locally hosted multi-agent system for automated CI/CD failure triage in software engineering and DevOps workflows.
 
-The system is planned to use a local language model served through Ollama and coordinate four specialized agents:
+## Overview
 
-- Coordinator Agent
-- Build/Test Analyzer Agent
-- Infra/Config Analyzer Agent
-- Remediation Planner Agent
+The system analyzes failed pipeline artifacts using deterministic tools and a multi-node agent workflow to:
 
-The goal is to inspect failed pipeline artifacts, identify likely root causes, collect supporting evidence, and produce a structured incident report with safe remediation steps.
+- Identify failure root causes
+- Collect supporting evidence
+- Generate remediation recommendations
+- Produce structured incident reports
 
-## Planned Scope
+### Agents
 
-The system accepts a local incident package containing artifacts such as:
+- **Coordinator Agent**: Initializes the triage state from incident artifacts
+- **Build/Test Analyzer Agent**: Parses build logs and test output
+- **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies
+- **Remediation Planner Agent**: Generates suspected causes and recommended actions
 
-- `incident.json`
-- `build.log`
-- `test-report.txt`
-- CI workflow configuration, such as `.github/workflows/ci.yml`
+## Current Implementation
+
+The system operates in **deterministic mode** using heuristic-based analyzers (no LLM calls). It accepts incident packages with artifacts such as:
+
+- `incident.json` — metadata
+- `build.log` — build output
+- `test-report.txt` — test results
+- CI workflow files (e.g., `.github/workflows/ci.yml`)
 - `Dockerfile`
-- Dependency files, such as `requirements.txt` or `package.json`
-- Optional diff or commit metadata
+- Dependency files (`requirements.txt`, `package.json`, `pyproject.toml`)
 
-It is intended to support:
+### Supported Failure Categories
 
 - CI build failures
 - Unit test failures
 - Dependency conflicts
-- Invalid workflow steps
-- Docker build problems
 - Missing environment variables
-- Invalid deployment configuration
+- CI config validation errors
+- Dockerfile build issues
 
 ## Project Structure
 
 ```text
 src/
-├── agents/
-├── tools/
+├── main.py              # CLI entry point
+├── agents/              # Agent implementations
+│   ├── __init__.py
+│   ├── coordinator_agent.py
+│   ├── build_test_analyzer_agent.py
+│   ├── infra_config_analyzer_agent.py
+│   └── remediation_planner_agent.py
+├── tools/               # Deterministic analyzers
+│   ├── artifact_loader.py
+│   ├── build_log_parser.py
+│   ├── ci_config_validator.py
+│   ├── dependency_inspector.py
+│   ├── dockerfile_inspector.py
+│   ├── triage_runner.py
+│   └── __init__.py
 ├── state/
+│   └── triage_state.py  # Pydantic models for shared state
 ├── graph/
+│   └── workflow.py      # LangGraph multi-node workflow
 └── tracing/
+    └── trace_logger.py  # JSONL trace event logging
 
 fixtures/
 └── sample_incidents/
-    └── incident_001/
+    └── incident_001/    # Sample fixture incident
 
 tests/
-├── test_tools/
-└── test_agents/
+├── test_tools/          # Tool and workflow tests
+├── test_agents/         # Agent tests
+└── test_cli.py          # CLI tests
 
-traces/
+traces/                  # Output directory for trace events
 docs/
 ```
 
 ## Technical Stack
 
-- Python 3.12
-- LangGraph for agent orchestration
-- Ollama for local model serving
-- Pydantic for typed shared state and tool responses
-- pytest for evaluation and testing
-- Docker for containerized execution
+- **Python 3.12+** — Runtime
+- **LangGraph** — Multi-agent workflow orchestration
+- **Pydantic v2** — Type-safe shared state and validation
+- **pytest** — Testing and evaluation
+- **ruff** — Linting and code quality
+- **Docker & Docker Compose** — Containerized deployment
 
-## Local Setup
+## Quick Start
 
-Create a virtual environment and install the project in editable mode:
+### Setup
+
+Create a virtual environment and install the project in development mode:
 
 ```bash
 python -m venv .venv
-.\.venv\Scripts\activate
+source .venv/bin/activate  # or .\.venv\Scripts\activate on Windows
 pip install -e ".[dev]"
 ```
 
-Run tests:
+### Run Triage
+
+Use the CLI to analyze an incident:
 
 ```bash
+# Human-readable output
+python -m src.main fixtures/sample_incidents/incident_001
+
+# JSON output
+python -m src.main fixtures/sample_incidents/incident_001 --json
+
+# With trace logging
+python -m src.main fixtures/sample_incidents/incident_001 --trace-dir traces
+```
+
+### Run Tests
+
+```bash
+# Run all tests
 pytest
+
+# Run specific test suite
+pytest tests/test_agents
+pytest tests/test_tools
+
+# Run with coverage
+pytest --cov=src
 ```
 
-## Ollama Setup
-
-For Windows development, the recommended setup is to run Ollama natively on the host machine and run the triage system in Docker.
-
-The Docker Compose configuration uses:
-
-```text
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-```
-
-You can override the model with:
+### Code Quality
 
 ```bash
-set OLLAMA_MODEL=llama3.1
+# Lint the codebase
+ruff check src tests
+
+# Auto-fix formatting issues
+ruff check src tests --fix
 ```
 
-## Docker Usage
+## CLI Reference
 
-Build the application container:
+```
+usage: python -m src.main [-h] [--trace-dir PATH] [--json] incident_dir
+
+Positional Arguments:
+  incident_dir      Path to the incident directory containing artifacts
+
+Optional Arguments:
+  --trace-dir PATH  Directory to write trace events (JSONL format)
+  --json            Output results as JSON instead of human-readable format
+  -h, --help        Show this help message and exit
+```
+
+### Output Examples
+
+**Human-readable format:**
+```
+Incident: incident_001
+Title: Pytest failure due to missing DATABASE_URL
+Classification: environment_issue
+
+Suspected Causes:
+1. Missing required environment variables in CI
+
+Recommended Actions:
+1. Configure required environment variables in CI
+
+Summary:
+Autogenerated remediation plan
+```
+
+**JSON format:**
+```json
+{
+  "incident_id": "incident_001",
+  "title": "Pytest failure due to missing DATABASE_URL",
+  "failure_classification": "environment_issue",
+  "suspected_causes": [
+    {
+      "cause_id": "cause-001",
+      "summary": "Missing required environment variables in CI",
+      "confidence": 0.9,
+      "rank": 1
+    }
+  ],
+  "recommended_actions": [
+    {
+      "action_id": "action-001",
+      "summary": "Configure required environment variables in CI",
+      "confidence": 0.9,
+      "rank": 1
+    }
+  ],
+  "executive_summary": "Autogenerated remediation plan",
+  "trace_event_count": 1
+}
+```
+
+## Docker Deployment
+
+Build and run the application using Docker Compose:
 
 ```bash
 docker compose build
-```
-
-Run the application:
-
-```bash
 docker compose up
 ```
 
-The application entry point is planned as:
+The Docker image includes all dependencies and runs the CLI entry point inside the container.
 
-```bash
-python -m src.main
+## Workflow Architecture
+
+The system uses a multi-node LangGraph workflow:
+
+```
+Coordinator
+    ↓
+Build/Test Analyzer
+    ↓
+Infra/Config Analyzer
+    ↓
+Remediation Planner
 ```
 
-This entry point will be implemented when the agent workflow is added.
+Each node processes the shared `TriageState`, progressively adding:
+- Observed failures
+- Build/test findings
+- Configuration findings
+- Dependency findings
+- Validated checks
+- Suspected causes
+- Recommended actions
+- Final report
 
-## Evaluation Plan
+## State Model
 
-The project will use fixture-based failure cases to evaluate:
+The `TriageState` (Pydantic BaseModel) includes:
 
-- Correct failure classification
-- Evidence quality and artifact grounding
-- Relevance and safety of recommended actions
-- Avoidance of unsupported or hallucinated fixes
+- **metadata**: Incident ID, title, repository, branch, etc.
+- **artifacts**: Collection of loaded artifact records
+- **observed_failures**: High-level failure observations
+- **build_test_findings**: Structured findings from build/test analysis
+- **config_findings**: CI/Docker/config validation findings
+- **dependency_findings**: Dependency conflict findings
+- **evidence**: Concrete evidence snippets from artifacts
+- **suspected_causes**: Root cause hypotheses with confidence
+- **recommended_actions**: Remediation steps with risk/confidence
+- **confidence_scores**: Confidence measurements for findings/causes/actions
+- **validated_checks**: Validation checks performed
+- **final_report**: Final incident summary with classification
+- **trace_events**: Event log of workflow execution (JSONL)
+
+## Testing
+
+The project includes comprehensive test coverage:
+
+```bash
+# Unit tests for tools
+pytest tests/test_tools
+
+# Agent tests
+pytest tests/test_agents
+
+# CLI tests
+pytest tests/test_cli.py
+
+# All tests
+pytest
+```
+
+Tests use the `fixtures/sample_incidents/incident_001` fixture to validate:
+
+- Artifact loading and parsing
+- Finding generation and evidence grounding
+- State immutability (no mutations of input state)
+- Output JSON schema compliance
+- CLI error handling
 
 ## Deliverables
 
-- Source code repository
-- Four implemented agents
-- Custom deterministic Python tools
-- Evaluation scripts and fixture cases
-- JSONL trace output
-- Technical report and demo materials
+✅ **Implemented:**
+- Four deterministic agent wrappers
+- Custom heuristic-based analysis tools
+- Multi-node LangGraph workflow
+- Pydantic-based shared state model
+- JSONL trace logging
+- CLI with human and JSON output
+- Comprehensive unit tests (70+ passing)
+- Code quality checks (ruff passing)
+- Docker Compose deployment configuration
+
+⏭️ **Future Enhancements:**
+- Integration with local LLM (Ollama) for semantic analysis
+- Additional artifact types (e.g., logs, stack traces)
+- Machine learning-based cause classification
+- Historical incident correlation
+- Interactive remediation guidance
