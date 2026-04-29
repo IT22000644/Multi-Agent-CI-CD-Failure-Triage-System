@@ -22,4 +22,16 @@ def run_coordinator(input_data: CoordinatorInput) -> TriageState:
     )
 
 
-__all__ = ["CoordinatorInput", "run_coordinator"]
+def initialize_triage_state(input_data: CoordinatorInput) -> TriageState:
+    from src.tools import load_incident_artifacts
+    from src.tools.triage_runner import _metadata_from_incident_artifact  # type: ignore
+
+    artifacts = load_incident_artifacts(input_data.incident_dir)
+    incident_art = artifacts.records.get("incident.json")
+    metadata = _metadata_from_incident_artifact(incident_art)
+
+    state = TriageState(metadata=metadata, artifacts=artifacts.records)
+    return state
+
+
+__all__ = ["CoordinatorInput", "initialize_triage_state", "run_coordinator"]
