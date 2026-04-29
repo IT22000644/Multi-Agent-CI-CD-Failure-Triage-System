@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform linux -- Python 3.12.6, pytest-8.4.2
+collected 1 item
+
+tests/test_settings.py::test_database_url_is_configured FAILED          [100%]
+
+=================================== FAILURES ===================================
+___________________ test_database_url_is_configured ___________________
+
+    def test_database_url_is_configured() -> None:
+        database_url = os.getenv("DATABASE_URL")
+>       assert database_url, "DATABASE_URL is required"
+E       AssertionError: DATABASE_URL is required
+E       assert None
+
+tests/test_settings.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_settings.py::test_database_url_is_configured - AssertionError: DATABASE_URL is required
+============================== 1 failed in 0.05s ==============================

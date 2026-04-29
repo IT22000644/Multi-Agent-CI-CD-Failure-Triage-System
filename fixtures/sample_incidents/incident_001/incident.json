@@ -1,0 +1,11 @@
+{
+  "incident_id": "incident_001",
+  "title": "Pytest failure due to missing DATABASE_URL",
+  "description": "CI pipeline failed during pytest because the required DATABASE_URL environment variable was not configured in the workflow.",
+  "repository": "sample-local-triage-app",
+  "branch": "main",
+  "commit_sha": "a1b2c3d",
+  "pipeline_name": "ci",
+  "run_id": "run_2026_04_28_001",
+  "expected_failure_category": "environment_issue"
+}

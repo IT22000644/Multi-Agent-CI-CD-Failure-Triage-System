@@ -1,0 +1,31 @@
+Run actions/checkout@v4
+Syncing repository: sample-local-triage-app
+
+Run actions/setup-python@v5
+Successfully set up Python 3.12
+
+Run python -m pip install --upgrade pip
+Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.12.6/x64/lib/python3.12/site-packages
+
+Run pip install -r requirements.txt
+Collecting pydantic>=2.8.0
+Collecting pyyaml>=6.0.2
+Collecting pytest>=8.0.0
+Successfully installed pydantic-2.12.0 pyyaml-6.0.3 pytest-8.4.2
+
+Run pytest -q
+F                                                                    [100%]
+=================================== FAILURES ===================================
+___________________ test_database_url_is_configured ___________________
+
+    def test_database_url_is_configured() -> None:
+        database_url = os.getenv("DATABASE_URL")
+>       assert database_url, "DATABASE_URL is required"
+E       AssertionError: DATABASE_URL is required
+E       assert None
+
+tests/test_settings.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_settings.py::test_database_url_is_configured - AssertionError: DATABASE_URL is required
+1 failed in 0.05s
+Error: Process completed with exit code 1.
