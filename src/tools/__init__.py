@@ -12,6 +12,8 @@ from .dependency_inspector import DependencyInspectionResult, inspect_dependenci
 __all__ = [
     "BuildLogParseResult",
     "CIConfigValidationResult",
+    "DependencyInspectionResult",
+    "inspect_dependencies",
     "load_incident_artifacts",
     "parse_build_and_test_logs",
     "validate_ci_config",

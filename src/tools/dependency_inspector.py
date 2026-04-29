@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 import json
 import re
 import tomllib
@@ -28,12 +27,19 @@ class DependencyInspectionResult(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-_REQUIREMENT_RE = re.compile(r"^[A-Za-z0-9_.+-]+(\s*(==|~=|>=|<=|>|<)\s*[^,\s]+)?(\s*,\s*[^\s].*)?$")
+_REQUIREMENT_RE = re.compile(
+    r"^[A-Za-z0-9_.+-]+(\s*(==|~=|>=|<=|>|<)\s*[^,\s]+)?(\s*,\s*[^\s].*)?$"
+)
+_VERSION_OPERATOR_RE = re.compile(r"(==|~=|>=|<=|>|<)")
 
 
 def _next_ids(counter: dict[str, int], prefix: str) -> str:
     counter[prefix] = counter.get(prefix, 0) + 1
     return f"{prefix}-{counter[prefix]:03d}"
+
+
+def _has_version_operator(value: str) -> bool:
+    return bool(_VERSION_OPERATOR_RE.search(value))
 
 
 def _append_finding_with_evidence(
@@ -113,7 +119,11 @@ def inspect_dependencies(
     )
 
     # Filter dependency file artifacts
-    dep_artifacts = [a for a in dependency_artifacts if a.artifact_type == ArtifactType.DEPENDENCY_FILE]
+    dep_artifacts = [
+        artifact
+        for artifact in dependency_artifacts
+        if artifact.artifact_type == ArtifactType.DEPENDENCY_FILE
+    ]
 
     if not dep_artifacts:
         validated_checks.append(
@@ -170,7 +180,7 @@ def inspect_dependencies(
                     malformed.append((idx, line))
                     continue
                 # detect unpinned (no operator present)
-                if not re.search(r"(==|~=|>=|<=|>|<)", line):
+                if not _has_version_operator(line):
                     unpinned.append((idx, line))
 
             # checks
@@ -181,7 +191,9 @@ def inspect_dependencies(
                     summary=f"Parsed requirements.txt {name}",
                     passed=parsed_ok,
                     details=(
-                        "Parsed requirements.txt with no malformed lines." if parsed_ok else "Malformed lines found."
+                        "Parsed requirements.txt with no malformed lines."
+                        if parsed_ok
+                        else "Malformed lines found."
                     ),
                     agent_name=AgentName.BUILD_TEST_ANALYZER,
                 )
@@ -223,7 +235,7 @@ def inspect_dependencies(
             # json parse
             try:
                 data = json.loads(art.content)
-            except Exception as exc:
+            except json.JSONDecodeError as exc:
                 _append_finding_with_evidence(
                     findings,
                     evidence,
@@ -243,6 +255,31 @@ def inspect_dependencies(
                         summary=f"Parsed package.json {name}",
                         passed=False,
                         details="Invalid JSON.",
+                        agent_name=AgentName.BUILD_TEST_ANALYZER,
+                    )
+                )
+                continue
+
+            if not isinstance(data, dict):
+                _append_finding_with_evidence(
+                    findings,
+                    evidence,
+                    counter,
+                    artifact_name=name,
+                    artifact_type=art.artifact_type,
+                    location="root",
+                    snippet=f"package.json root type: {type(data).__name__}",
+                    category=FailureCategory.DEPENDENCY_ISSUE,
+                    severity=FindingSeverity.HIGH,
+                    summary="package.json root must be a JSON object",
+                    details="The parsed package.json root value must be an object.",
+                )
+                validated_checks.append(
+                    ValidatedCheck(
+                        check_id=_next_ids(counter, "check-dep"),
+                        summary=f"Parsed package.json {name}",
+                        passed=False,
+                        details="Parsed JSON is not an object.",
                         agent_name=AgentName.BUILD_TEST_ANALYZER,
                     )
                 )
@@ -276,7 +313,9 @@ def inspect_dependencies(
                                 summary=f"Empty version for {pkg} in package.json",
                                 details=f"{section}.{pkg} is empty string.",
                             )
-                        elif isinstance(val, str) and (val.strip() == "*" or val.strip().lower() == "latest"):
+                        elif isinstance(val, str) and (
+                            val.strip() == "*" or val.strip().lower() == "latest"
+                        ):
                             _append_finding_with_evidence(
                                 findings,
                                 evidence,
@@ -336,7 +375,7 @@ def inspect_dependencies(
                 for idx, item in enumerate(deps, start=1):
                     # simple string dependency detection
                     if isinstance(item, str):
-                        if not re.search(r"(==|~=|>=|<=|>|<)", item):
+                        if not _has_version_operator(item):
                             _append_finding_with_evidence(
                                 findings,
                                 evidence,
@@ -351,6 +390,40 @@ def inspect_dependencies(
                                 details=f"Entry {idx} appears unpinned: {item}",
                             )
 
+            optional_deps = (
+                project.get("optional-dependencies")
+                if isinstance(project, dict)
+                else None
+            )
+            if isinstance(optional_deps, dict):
+                for group_name, group_deps in optional_deps.items():
+                    if not isinstance(group_deps, list):
+                        continue
+                    for idx, item in enumerate(group_deps, start=1):
+                        if isinstance(item, str) and not _has_version_operator(item):
+                            _append_finding_with_evidence(
+                                findings,
+                                evidence,
+                                counter,
+                                artifact_name=name,
+                                artifact_type=art.artifact_type,
+                                location=(
+                                    "project.optional-dependencies."
+                                    f"{group_name}[{idx}]"
+                                ),
+                                snippet=item,
+                                category=FailureCategory.DEPENDENCY_ISSUE,
+                                severity=FindingSeverity.LOW,
+                                summary=(
+                                    "Unpinned optional dependency "
+                                    "in pyproject.toml"
+                                ),
+                                details=(
+                                    f"Optional dependency {group_name}[{idx}] "
+                                    f"appears unpinned: {item}"
+                                ),
+                            )
+
             # tool.poetry.dependencies
             tool = data.get("tool") or {}
             poetry = tool.get("poetry") if isinstance(tool, dict) else None
@@ -358,7 +431,7 @@ def inspect_dependencies(
                 poetry_deps = poetry.get("dependencies")
                 if isinstance(poetry_deps, dict):
                     for pkg, val in poetry_deps.items():
-                        if isinstance(val, str) and not re.search(r"(==|~=|>=|<=|>|<)", val):
+                        if isinstance(val, str) and not _has_version_operator(val):
                             _append_finding_with_evidence(
                                 findings,
                                 evidence,
