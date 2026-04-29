@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, Field
 
 from src.state import (
@@ -109,8 +107,12 @@ def _classify_line(line: str) -> FailureCategory | None:
     return None
 
 
+def _sort_key(category: FailureCategory) -> int:
+    return _CATEGORY_PRIORITY.get(category, 0)
+
+
 def _sort_categories(categories: set[FailureCategory]) -> list[FailureCategory]:
-    return sorted(categories, key=lambda category: _CATEGORY_PRIORITY.get(category, 0), reverse=True)
+    return sorted(categories, key=_sort_key, reverse=True)
 
 
 def _scan_artifact(
@@ -168,10 +170,16 @@ def _build_result(
         )
         finding_id = f"finding-build-{index:03d}"
         evidence_ids = category_evidence_ids.get(category, [])
+        observed_summary = (
+            summary
+            if category != FailureCategory.ENVIRONMENT_ISSUE
+            else "DATABASE_URL is missing or not configured in CI"
+        )
+
         observed_failures.append(
             ObservedFailure(
                 category=category,
-                summary=summary if category != FailureCategory.ENVIRONMENT_ISSUE else "DATABASE_URL is missing or not configured in CI",
+                summary=observed_summary,
                 source_artifact="build.log",
                 evidence_ids=evidence_ids,
             )

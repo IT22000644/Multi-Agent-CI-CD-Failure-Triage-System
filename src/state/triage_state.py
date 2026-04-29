@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,7 +13,7 @@ class TriageBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
-class AgentName(str, Enum):
+class AgentName(StrEnum):
     """Named agents that can contribute evidence or findings."""
 
     COORDINATOR = "coordinator"
@@ -22,7 +22,7 @@ class AgentName(str, Enum):
     REMEDIATION_PLANNER = "remediation_planner"
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Supported artifact kinds that can be loaded for triage."""
 
     LOG = "log"
@@ -35,7 +35,7 @@ class ArtifactType(str, Enum):
     OTHER = "other"
 
 
-class ArtifactStatus(str, Enum):
+class ArtifactStatus(StrEnum):
     """Lifecycle status of an artifact as it is discovered and validated."""
 
     DISCOVERED = "discovered"
@@ -48,7 +48,7 @@ class ArtifactStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-class FindingSeverity(str, Enum):
+class FindingSeverity(StrEnum):
     """Severity levels used for findings and remediation risk."""
 
     INFO = "info"
@@ -58,7 +58,7 @@ class FindingSeverity(str, Enum):
     CRITICAL = "critical"
 
 
-class FailureCategory(str, Enum):
+class FailureCategory(StrEnum):
     """Coarse failure categories used to organize observed failures and findings."""
 
     COMPILATION_ERROR = "compilation_error"
@@ -71,7 +71,7 @@ class FailureCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
-class ConfidenceLevel(str, Enum):
+class ConfidenceLevel(StrEnum):
     """Qualitative confidence buckets derived from a numeric confidence score."""
 
     VERY_LOW = "very_low"
@@ -81,7 +81,7 @@ class ConfidenceLevel(str, Enum):
     VERY_HIGH = "very_high"
 
 
-class ConfidenceSubjectType(str, Enum):
+class ConfidenceSubjectType(StrEnum):
     """Targets that a confidence score can be associated with."""
 
     FINDING = "finding"
@@ -101,7 +101,7 @@ class IncidentMetadata(TriageBaseModel):
     commit_sha: str | None = None
     pipeline_name: str | None = None
     run_id: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ArtifactRecord(TriageBaseModel):
@@ -120,7 +120,7 @@ class ArtifactCollection(TriageBaseModel):
     """Named collection of artifacts available for analysis."""
 
     records: dict[str, ArtifactRecord] = Field(default_factory=dict)
-    loaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    loaded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     source: str | None = None
 
 
@@ -202,7 +202,7 @@ class ValidatedCheck(TriageBaseModel):
     details: str | None = None
     agent_name: AgentName | None = None
     evidence_ids: list[str] = Field(default_factory=list)
-    validated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    validated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FinalReport(TriageBaseModel):
@@ -215,14 +215,14 @@ class FinalReport(TriageBaseModel):
     recommended_actions: list[RecommendedAction] = Field(default_factory=list)
     evidence_summary: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class TraceEvent(TriageBaseModel):
     """Observability event captured while the triage workflow is running."""
 
     event_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     agent_name: AgentName | None = None
     event_type: str
     message: str
