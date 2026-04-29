@@ -25,6 +25,8 @@ dist/
 # Runtime output
 traces/*.jsonl
 traces/*.log
+.tmp/
+test-temp/
 
 # OS/editor files
 .DS_Store
