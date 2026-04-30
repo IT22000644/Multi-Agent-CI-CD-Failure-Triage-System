@@ -1,0 +1,1 @@
+{"agent_name": "coordinator", "artifact_name": null, "event_id": "trace-incident_001-001", "event_type": "workflow.start", "finding_id": null, "message": "Workflow initialized", "metadata": {"stage": "coordinator"}, "timestamp": "2026-04-30T04:40:11.388321Z"}

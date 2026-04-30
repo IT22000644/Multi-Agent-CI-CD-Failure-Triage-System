@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from src.llm.ollama_client import generate_with_ollama
 from src.state import (
     ConfidenceLevel,
     ConfidenceScore,
@@ -21,10 +22,8 @@ class RemediationPlannerInput(BaseModel):
     state: TriageState
 
 
-def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
-    state = input_data.state.model_copy(deep=True)
-
-    # Simple deterministic planner
+def _run_deterministic_planner(state: TriageState) -> TriageState:
+    # Preserve previous deterministic planner behaviour
     env_findings = [
         f
         for f in (
@@ -136,6 +135,82 @@ def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
 
     state.final_report = report
     return state
+
+
+def _build_remediation_prompt(state: TriageState) -> str:
+    parts: list[str] = []
+    meta = state.metadata
+    parts.append(f"Incident ID: {meta.incident_id}")
+    if meta.title:
+        parts.append(f"Title: {meta.title}")
+
+    # Observed failures
+    if state.observed_failures:
+        parts.append("Observed Failures:")
+        for idx, of in enumerate(state.observed_failures):
+            parts.append(f"- [{idx+1}] {of.summary}")
+
+    # Findings grouped
+    def append_findings(name: str, findings: list):
+        if findings:
+            parts.append(f"{name} Findings:")
+            for f in findings:
+                parts.append(f"- {f.finding_id}: {f.summary} | {f.details}")
+
+    append_findings("Build/Test", state.build_test_findings)
+    append_findings("Config", state.config_findings)
+    append_findings("Dependency", state.dependency_findings)
+
+    # Evidence snippets
+    if state.evidence:
+        parts.append("Evidence snippets:")
+        for e in state.evidence[:5]:
+            parts.append(f"- {e.evidence_id}: {e.snippet}")
+
+    # Validated checks
+    if state.validated_checks:
+        parts.append("Validated Checks:")
+        for c in state.validated_checks:
+            parts.append(f"- {c.check_id}: {c.summary} (passed={c.passed})")
+
+    parts.append(
+        "Please produce a concise remediation executive summary and a short root cause summary."
+    )
+    parts.append(
+        "Do not invent IDs or modify structured evidence."
+    )
+    parts.append(
+        "Avoid suggesting unsupported fixes such as code changes to private repositories."
+    )
+
+    return "\n".join(parts)
+
+
+def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
+    state = input_data.state.model_copy(deep=True)
+
+    # Ollama is required: build prompt and call into LLM
+    prompt = _build_remediation_prompt(state)
+    llm_text = generate_with_ollama(prompt)
+
+    # Create deterministic structured output and then enhance with LLM text
+    updated = _run_deterministic_planner(state)
+
+    # Merge LLM text into final report fields safely
+    if updated.final_report:
+        updated.final_report.executive_summary = llm_text.strip()
+        # root cause summary: keep structured cause but allow short LLM summary
+        if updated.final_report.root_cause_summary:
+            updated.final_report.root_cause_summary = (
+                llm_text.strip()
+            )
+        # Optionally enrich first recommended action details
+        if updated.recommended_actions:
+            updated.recommended_actions[0].details = (
+                (updated.recommended_actions[0].details or "") + "\n\nLLM_NOTE: " + llm_text.strip()
+            )
+
+    return updated
 
 
 __all__ = ["RemediationPlannerInput", "run_remediation_planner"]

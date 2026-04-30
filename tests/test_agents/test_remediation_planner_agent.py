@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.agents import (
     BuildTestAnalyzerInput,
     CoordinatorInput,
@@ -19,6 +21,7 @@ def test_remediation_planner_creates_remediation_plan() -> None:
 
     state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
     state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+    # LLM call is mocked by conftest.py autouse fixture
     state = run_remediation_planner(RemediationPlannerInput(state=state))
 
     assert state.suspected_causes
@@ -42,3 +45,23 @@ def test_remediation_planner_creates_remediation_plan() -> None:
         assert score.score_id
         assert isinstance(score.level, ConfidenceLevel)
         assert score.subject_id
+
+
+
+def test_remediation_planner_ollama_failure_raises(monkeypatch):
+    coord = CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
+    state = initialize_triage_state(coord)
+
+    state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+    state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+
+    from src.llm.ollama_client import OllamaGenerationError
+
+    def bad_generate(prompt, config=None):
+        raise OllamaGenerationError("no connection")
+
+    from src.agents import remediation_planner_agent
+    remediation_planner_agent.generate_with_ollama = bad_generate
+
+    with pytest.raises(OllamaGenerationError):
+        run_remediation_planner(RemediationPlannerInput(state=state))

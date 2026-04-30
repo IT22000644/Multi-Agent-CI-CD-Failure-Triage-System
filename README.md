@@ -14,13 +14,13 @@ The system analyzes failed pipeline artifacts using deterministic tools and a mu
 ### Agents
 
 - **Coordinator Agent**: Initializes the triage state from incident artifacts
-- **Build/Test Analyzer Agent**: Parses build logs and test output
+- **Build/Test Analyzer Agent**: Parses build logs and test output, then uses an LLM to interpret failure symptoms
 - **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies
-- **Remediation Planner Agent**: Generates suspected causes and recommended actions
+- **Remediation Planner Agent**: Generates suspected causes and recommended actions using an LLM (via local Ollama)
 
 ## Current Implementation
 
-The system operates in **deterministic mode** using heuristic-based analyzers (no LLM calls). It accepts incident packages with artifacts such as:
+The system combines deterministic artifact analyzers with a local LLM (via Ollama) for build/test interpretation and remediation planning. It accepts incident packages with artifacts such as:
 
 - `incident.json` — metadata
 - `build.log` — build output
@@ -83,11 +83,26 @@ docs/
 - **Python 3.12+** — Runtime
 - **LangGraph** — Multi-agent workflow orchestration
 - **Pydantic v2** — Type-safe shared state and validation
+- **Ollama** — Local LLM runtime (required for build/test interpretation and remediation planning)
+- **langchain-ollama** — LLM client wrapper
 - **pytest** — Testing and evaluation
 - **ruff** — Linting and code quality
 - **Docker & Docker Compose** — Containerized deployment
 
 ## Quick Start
+
+### Prerequisites
+
+Ollama is required to run the triage system. Install and start it:
+
+```powershell
+# Download Ollama from https://ollama.ai or use a package manager
+# Start the Ollama service (runs on http://localhost:11434 by default)
+ollama serve
+
+# In a separate terminal, download the model
+ollama pull llama3.1
+```
 
 ### Setup
 
@@ -102,7 +117,7 @@ pip install -e ".[dev]"
 
 ### Run Triage
 
-Use the CLI to analyze an incident:
+Make sure Ollama is running (`ollama serve` in a separate terminal), then use the CLI to analyze an incident:
 
 ```powershell
 # Human-readable output
@@ -115,7 +130,21 @@ Use the CLI to analyze an incident:
 .\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001 --trace-dir traces
 ```
 
+**Note**: If Ollama is unavailable, the CLI will fail with an `OllamaGenerationError` instead of silently falling back to deterministic-only analysis.
+
+### Run Real Ollama Smoke Check
+
+Use the smoke script to verify the full local runtime path with a real Ollama server:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py
+```
+
+The smoke check validates that Ollama is reachable, the configured model is available, both SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
+
 ### Run Tests
+
+Tests automatically mock the Ollama LLM client and do not require a running Ollama service:
 
 ```powershell
 # Run all tests
@@ -138,11 +167,26 @@ Use the CLI to analyze an incident:
 # Lint the codebase
 .\.venv\Scripts\python.exe -m ruff check src tests
 
-# Windows PowerShell example used in this repository
-.\.venv\Scripts\python.exe -m ruff check src tests
-
 # Auto-fix formatting issues
 .\.venv\Scripts\python.exe -m ruff check src tests --fix
+```
+
+### Ollama Configuration
+
+Customize Ollama behavior using environment variables:
+
+```powershell
+# Set custom Ollama server (default: http://localhost:11434)
+$env:OLLAMA_BASE_URL="http://example.com:11434"
+
+# Set model name (default: llama3.1)
+$env:OLLAMA_MODEL="llama2"
+
+# Set LLM timeout in seconds (default: 30.0)
+$env:OLLAMA_TIMEOUT_SECONDS="60"
+
+# Then run triage
+.\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001
 ```
 
 ## CLI Reference
@@ -215,9 +259,7 @@ docker compose up
 
 Docker support is included as a project scaffold. The primary current usage path is the local CLI.
 
-To run a real triage inside Docker, pass an incident directory argument or update the Compose command accordingly. The current `docker compose up` command does not pass an incident directory by itself.
-
-Ollama-related environment variables remain in the repository for future LLM integration, but the current implementation is deterministic only and does not call Ollama. Ollama integration is planned next.
+To run a real triage inside Docker, ensure Ollama is available (either installed on the host or linked via Docker network), then pass an incident directory argument or update the Compose command accordingly. The current `docker compose up` command does not pass an incident directory by itself.
 
 ## Workflow Architecture
 
@@ -290,18 +332,18 @@ Tests use the `fixtures/sample_incidents/incident_001` fixture to validate:
 ## Deliverables
 
 ✅ **Implemented:**
-- Four deterministic agent wrappers
-- Custom heuristic-based analysis tools
+- Four agent wrappers (Coordinator, Build/Test, Infra/Config, Remediation Planner)
+- Custom deterministic artifact analysis tools
 - Multi-node LangGraph workflow
 - Pydantic-based shared state model
 - JSONL trace logging
 - CLI with human and JSON output
-- Comprehensive unit tests (70+ passing)
+- Local LLM integration (Ollama + langchain-ollama)
+- Comprehensive unit tests with LLM mocking (80+ passing)
 - Code quality checks (ruff passing)
 - Docker Compose deployment configuration
 
 ⏭️ **Future Enhancements:**
-- Integration with local LLM (Ollama) for semantic analysis
 - Additional artifact types (e.g., logs, stack traces)
 - Machine learning-based cause classification
 - Historical incident correlation
