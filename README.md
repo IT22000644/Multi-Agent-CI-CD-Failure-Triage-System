@@ -147,6 +147,12 @@ Use the smoke script to verify the full local runtime path with a real Ollama se
 
 The smoke check validates that Ollama is reachable, the configured model is available, all SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
 
+You can pass another incident directory to exercise a different failure class:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_002_dependency_failure --trace-dir traces\smoke_dependency
+```
+
 ### Report Artifacts
 
 When `--report-dir` is provided, the CLI writes:

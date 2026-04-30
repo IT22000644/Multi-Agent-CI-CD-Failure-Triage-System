@@ -14,6 +14,7 @@ from src.agents import (
     run_remediation_planner,
 )
 from src.reporting import ReportExportResult, export_report
+from src.state import FailureCategory
 
 
 def _completed_state():
@@ -62,3 +63,25 @@ def test_export_report_markdown_contains_triage_sections(tmp_path: Path) -> None
     assert "## Evidence" in markdown
     assert "## Recommended Actions" in markdown
     assert "traces/incident_001.jsonl" in markdown
+
+
+def test_export_report_supports_dependency_failure_fixture(tmp_path: Path) -> None:
+    state = initialize_triage_state(
+        CoordinatorInput(
+            incident_dir="fixtures/sample_incidents/incident_002_dependency_failure"
+        )
+    )
+    state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+    state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+    state = run_remediation_planner(RemediationPlannerInput(state=state))
+
+    assert state.final_report is not None
+    assert state.final_report.failure_classification == FailureCategory.DEPENDENCY_ISSUE
+
+    result = export_report(state, tmp_path)
+    markdown = result.markdown_report_path.read_text(encoding="utf-8")
+    payload = json.loads(result.summary_json_path.read_text(encoding="utf-8"))
+
+    assert "incident_002_dependency_failure" in markdown
+    assert "dependency_issue" in markdown
+    assert payload["classification"] == "dependency_issue"

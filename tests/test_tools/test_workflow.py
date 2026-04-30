@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from src.graph import build_triage_workflow, run_triage_workflow
-from src.state import TriageState
+from src.state import FailureCategory, TriageState
 
 
 def test_workflow_runner_returns_populated_triage_state() -> None:
@@ -71,3 +71,30 @@ def test_workflow_populates_full_pipeline() -> None:
     assert state.recommended_actions
     assert state.confidence_scores
     assert state.final_report is not None
+
+
+def test_workflow_handles_dependency_failure_fixture(tmp_path: Path) -> None:
+    state = run_triage_workflow(
+        "fixtures/sample_incidents/incident_002_dependency_failure",
+        trace_dir=tmp_path,
+    )
+
+    assert state.metadata.incident_id == "incident_002_dependency_failure"
+    assert any(
+        failure.category == FailureCategory.DEPENDENCY_ISSUE
+        for failure in state.observed_failures
+    )
+    assert any(
+        finding.category == FailureCategory.DEPENDENCY_ISSUE
+        for finding in state.build_test_findings + state.dependency_findings
+    )
+    assert state.final_report is not None
+    assert state.final_report.failure_classification == FailureCategory.DEPENDENCY_ISSUE
+    assert state.recommended_actions
+    assert any(item.location == "ollama.incident_context" for item in state.evidence)
+    assert any(item.location == "ollama.semantic_interpretation" for item in state.evidence)
+    assert any(
+        item.location == "ollama.infra_config_interpretation"
+        for item in state.evidence
+    )
+    assert (tmp_path / "incident_002_dependency_failure.jsonl").exists()

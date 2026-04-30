@@ -36,11 +36,12 @@ class RemediationPlannerLLMOutput(BaseModel):
 
 def _run_deterministic_planner(state: TriageState) -> TriageState:
     # Preserve previous deterministic planner behaviour
+    all_findings = (
+        state.build_test_findings + state.config_findings + state.dependency_findings
+    )
     env_findings = [
         f
-        for f in (
-            state.build_test_findings + state.config_findings + state.dependency_findings
-        )
+        for f in all_findings
         if f.category == FailureCategory.ENVIRONMENT_ISSUE
     ]
 
@@ -88,9 +89,6 @@ def _run_deterministic_planner(state: TriageState) -> TriageState:
         confidences.append(confidence_score)
     else:
         # Generic fallback using first finding if available
-        all_findings = (
-            state.build_test_findings + state.config_findings + state.dependency_findings
-        )
         if all_findings:
             f = all_findings[0]
             cause = SuspectedCause(
@@ -130,7 +128,7 @@ def _run_deterministic_planner(state: TriageState) -> TriageState:
     state.confidence_scores = confidences
 
     # Final report
-    fallback_category = FailureCategory.UNKNOWN
+    fallback_category = all_findings[0].category if all_findings else FailureCategory.UNKNOWN
     report = FinalReport(
         incident_id=state.metadata.incident_id,
         failure_classification=(
