@@ -205,6 +205,17 @@ Tests automatically mock the Ollama LLM client and do not require a running Olla
 .\.venv\Scripts\python.exe -m ruff check src tests --fix
 ```
 
+### Common Make Targets
+
+The repository includes a `Makefile` for common commands. Set `PYTHON` if you want to force the local virtual environment:
+
+```powershell
+make lint PYTHON=.\.venv\Scripts\python.exe
+make test PYTHON=.\.venv\Scripts\python.exe
+make run-sample PYTHON=.\.venv\Scripts\python.exe
+make evaluate PYTHON=.\.venv\Scripts\python.exe
+```
+
 ### Ollama Configuration
 
 Customize Ollama behavior using environment variables:
