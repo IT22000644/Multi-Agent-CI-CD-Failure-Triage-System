@@ -13,14 +13,14 @@ The system analyzes failed pipeline artifacts using deterministic tools and a mu
 
 ### Agents
 
-- **Coordinator Agent**: Initializes the triage state from incident artifacts
+- **Coordinator Agent**: Initializes triage state and uses an LLM to summarize incident context
 - **Build/Test Analyzer Agent**: Parses build logs and test output, then uses an LLM to interpret failure symptoms
-- **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies
+- **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies, then uses an LLM to interpret configuration risk
 - **Remediation Planner Agent**: Generates suspected causes and recommended actions using an LLM (via local Ollama)
 
 ## Current Implementation
 
-The system combines deterministic artifact analyzers with a local LLM (via Ollama) for build/test interpretation and remediation planning. It accepts incident packages with artifacts such as:
+The system combines deterministic artifact analyzers with a local LLM (via Ollama) for incident context summarization, build/test interpretation, infrastructure/configuration interpretation, and remediation planning. It accepts incident packages with artifacts such as:
 
 - `incident.json` — metadata
 - `build.log` — build output
@@ -83,7 +83,7 @@ docs/
 - **Python 3.12+** — Runtime
 - **LangGraph** — Multi-agent workflow orchestration
 - **Pydantic v2** — Type-safe shared state and validation
-- **Ollama** — Local LLM runtime (required for build/test interpretation and remediation planning)
+- **Ollama** — Local LLM runtime (required for SLM-backed agent interpretation and planning)
 - **langchain-ollama** — LLM client wrapper
 - **pytest** — Testing and evaluation
 - **ruff** — Linting and code quality
@@ -128,6 +128,9 @@ Make sure Ollama is running (`ollama serve` in a separate terminal), then use th
 
 # With trace logging
 .\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001 --trace-dir traces
+
+# With trace logging and exported report artifacts
+.\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001 --trace-dir traces --report-dir reports
 ```
 
 **Note**: If Ollama is unavailable, the CLI will fail with an `OllamaGenerationError` instead of silently falling back to deterministic-only analysis.
@@ -140,7 +143,18 @@ Use the smoke script to verify the full local runtime path with a real Ollama se
 .\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py
 ```
 
-The smoke check validates that Ollama is reachable, the configured model is available, both SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
+The smoke check validates that Ollama is reachable, the configured model is available, all SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
+
+### Report Artifacts
+
+When `--report-dir` is provided, the CLI writes:
+
+```text
+reports/<incident_id>/summary.json
+reports/<incident_id>/report.md
+```
+
+The JSON file preserves the structured triage state for evaluation. The Markdown file is a human-readable incident report for demos and review.
 
 ### Run Tests
 

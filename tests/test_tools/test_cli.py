@@ -42,6 +42,49 @@ def test_cli_writes_trace_file_when_trace_dir_provided(tmp_path: Path) -> None:
     assert (tmp_path / "incident_001.jsonl").exists()
 
 
+def test_cli_writes_report_files_when_report_dir_provided(tmp_path: Path, capsys: object) -> None:
+    """Test report artifacts are created when --report-dir is provided."""
+    report_dir = tmp_path / "reports"
+    exit_code = main(
+        [
+            "fixtures/sample_incidents/incident_001",
+            "--report-dir",
+            str(report_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    assert (report_dir / "incident_001" / "summary.json").exists()
+    assert (report_dir / "incident_001" / "report.md").exists()
+
+    captured = capsys.readouterr()  # type: ignore
+    assert "Report JSON:" in captured.out
+    assert "Report Markdown:" in captured.out
+
+
+def test_json_cli_includes_report_export_when_report_dir_provided(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Test JSON CLI output includes report artifact paths."""
+    report_dir = tmp_path / "reports"
+    exit_code = main(
+        [
+            "fixtures/sample_incidents/incident_001",
+            "--json",
+            "--report-dir",
+            str(report_dir),
+        ]
+    )
+
+    assert exit_code == 0
+
+    captured = capsys.readouterr()  # type: ignore
+    payload = json.loads(captured.out)
+    assert payload["report_export"]["summary_json"].endswith("summary.json")
+    assert payload["report_export"]["markdown_report"].endswith("report.md")
+
+
 def test_missing_path_returns_non_zero(capsys: object) -> None:
     """Test non-zero exit when incident directory does not exist."""
     exit_code = main(["does-not-exist"])

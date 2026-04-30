@@ -45,22 +45,23 @@ def test_build_test_analyzer_detects_environment_issue() -> None:
 
 def test_build_test_analyzer_does_not_mutate_input_state() -> None:
     state = _initial_state()
-    # ensure original is empty
+    original_evidence = list(state.evidence)
+
+    # ensure original analyzer-owned fields are empty
     assert state.observed_failures == []
     assert state.build_test_findings == []
-    assert state.evidence == []
 
     updated = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
 
-    # original still empty
+    # original analyzer-owned fields are unchanged
     assert state.observed_failures == []
     assert state.build_test_findings == []
-    assert state.evidence == []
+    assert state.evidence == original_evidence
 
     # updated has values
     assert updated.observed_failures
     assert updated.build_test_findings
-    assert updated.evidence
+    assert len(updated.evidence) > len(original_evidence)
 
 
 def test_build_test_analyzer_evidence_supports_existing_findings() -> None:
