@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from src.llm import StructuredLLMOutputError, parse_llm_json_output
 from src.llm.ollama_client import generate_with_ollama
 from src.state import AgentName, ArtifactType, EvidenceItem, TriageState
 from src.tools import (
@@ -15,6 +16,17 @@ class InfraConfigAnalyzerInput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     state: TriageState
+
+
+class InfraConfigAnalyzerOutputParseError(RuntimeError):
+    """Raised when the infra/config analyzer LLM response is not valid structured output."""
+
+
+class InfraConfigAnalyzerLLMOutput(BaseModel):
+    config_interpretation: str = Field(min_length=1)
+    risk_summary: str | None = None
+    relevant_check_ids: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 def _collect_dependency_artifacts(records: dict[str, object]):
@@ -55,11 +67,33 @@ def _build_infra_config_interpretation_prompt(state: TriageState) -> str:
         for check in state.validated_checks[:20]:
             parts.append(f"- {check.check_id}: {check.summary} (passed={check.passed})")
 
+    parts.append(
+        "Return only valid JSON with this exact schema: "
+        '{"config_interpretation": string, "risk_summary": string | null, '
+        '"relevant_check_ids": string[], "limitations": string[]}.'
+    )
+
     return "\n".join(parts)
 
 
-def _append_llm_interpretation_evidence(state: TriageState, interpretation: str) -> None:
-    text = interpretation.strip()
+def _parse_infra_config_llm_output(text: str) -> InfraConfigAnalyzerLLMOutput:
+    try:
+        return parse_llm_json_output(
+            text,
+            InfraConfigAnalyzerLLMOutput,
+            context="Infra/config analyzer",
+        )
+    except StructuredLLMOutputError as exc:
+        raise InfraConfigAnalyzerOutputParseError(
+            f"Infra/config analyzer LLM output parse failed: {exc}"
+        ) from exc
+
+
+def _append_llm_interpretation_evidence(
+    state: TriageState,
+    output: InfraConfigAnalyzerLLMOutput,
+) -> None:
+    text = output.config_interpretation.strip()
     if not text:
         return
 
@@ -108,10 +142,15 @@ def run_infra_config_analyzer(input_data: InfraConfigAnalyzerInput) -> TriageSta
     )
 
     prompt = _build_infra_config_interpretation_prompt(state)
-    interpretation = generate_with_ollama(prompt)
+    interpretation = _parse_infra_config_llm_output(generate_with_ollama(prompt))
     _append_llm_interpretation_evidence(state, interpretation)
 
     return state
 
 
-__all__ = ["InfraConfigAnalyzerInput", "run_infra_config_analyzer"]
+__all__ = [
+    "InfraConfigAnalyzerInput",
+    "InfraConfigAnalyzerLLMOutput",
+    "InfraConfigAnalyzerOutputParseError",
+    "run_infra_config_analyzer",
+]

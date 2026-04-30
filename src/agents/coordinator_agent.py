@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from src.llm import StructuredLLMOutputError, parse_llm_json_output
 from src.llm.ollama_client import generate_with_ollama
 from src.state import AgentName, ArtifactType, EvidenceItem, TriageState
 from src.tools import run_deterministic_triage
@@ -14,6 +15,16 @@ class CoordinatorInput(BaseModel):
 
     incident_dir: str | Path
     trace_dir: str | Path | None = None
+
+
+class CoordinatorOutputParseError(RuntimeError):
+    """Raised when the coordinator LLM response is not valid structured output."""
+
+
+class CoordinatorLLMOutput(BaseModel):
+    incident_context_summary: str = Field(min_length=1)
+    notable_artifacts: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 def _build_incident_context_prompt(state: TriageState) -> str:
@@ -44,11 +55,29 @@ def _build_incident_context_prompt(state: TriageState) -> str:
             f"type={artifact.artifact_type.value}, status={artifact.status.value}"
         )
 
+    parts.append(
+        "Return only valid JSON with this exact schema: "
+        '{"incident_context_summary": string, '
+        '"notable_artifacts": string[], "limitations": string[]}.'
+    )
+
     return "\n".join(parts)
 
 
-def _append_incident_context_evidence(state: TriageState, context_summary: str) -> None:
-    text = context_summary.strip()
+def _parse_coordinator_llm_output(text: str) -> CoordinatorLLMOutput:
+    try:
+        return parse_llm_json_output(text, CoordinatorLLMOutput, context="Coordinator")
+    except StructuredLLMOutputError as exc:
+        raise CoordinatorOutputParseError(
+            f"Coordinator LLM output parse failed: {exc}"
+        ) from exc
+
+
+def _append_incident_context_evidence(
+    state: TriageState,
+    output: CoordinatorLLMOutput,
+) -> None:
+    text = output.incident_context_summary.strip()
     if not text:
         return
 
@@ -65,7 +94,7 @@ def _append_incident_context_evidence(state: TriageState, context_summary: str) 
 
 def _add_incident_context_summary(state: TriageState) -> TriageState:
     prompt = _build_incident_context_prompt(state)
-    context_summary = generate_with_ollama(prompt)
+    context_summary = _parse_coordinator_llm_output(generate_with_ollama(prompt))
     _append_incident_context_evidence(state, context_summary)
     return state
 
@@ -90,4 +119,10 @@ def initialize_triage_state(input_data: CoordinatorInput) -> TriageState:
     return _add_incident_context_summary(state)
 
 
-__all__ = ["CoordinatorInput", "initialize_triage_state", "run_coordinator"]
+__all__ = [
+    "CoordinatorInput",
+    "CoordinatorLLMOutput",
+    "CoordinatorOutputParseError",
+    "initialize_triage_state",
+    "run_coordinator",
+]

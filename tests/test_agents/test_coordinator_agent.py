@@ -48,7 +48,12 @@ def test_coordinator_records_llm_incident_context(monkeypatch) -> None:
 
     def fake_generate(prompt, config=None):
         calls.append(prompt)
-        return "Incident context summary from metadata and artifacts."
+        return (
+            '{"incident_context_summary": '
+            '"Incident context summary from metadata and artifacts.", '
+            '"notable_artifacts": ["incident.json"], '
+            '"limitations": []}'
+        )
 
     monkeypatch.setattr(coordinator_agent, "generate_with_ollama", fake_generate)
 
@@ -62,6 +67,20 @@ def test_coordinator_records_llm_incident_context(monkeypatch) -> None:
     ]
     assert context_evidence
     assert "Incident context summary" in context_evidence[0].snippet
+
+
+def test_coordinator_malformed_json_raises(monkeypatch) -> None:
+    from src.agents import coordinator_agent
+
+    def bad_generate(prompt, config=None):
+        return "not json"
+
+    monkeypatch.setattr(coordinator_agent, "generate_with_ollama", bad_generate)
+
+    with pytest.raises(coordinator_agent.CoordinatorOutputParseError):
+        run_coordinator(
+            CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
+        )
 
 
 def test_coordinator_ollama_failure_raises(monkeypatch) -> None:

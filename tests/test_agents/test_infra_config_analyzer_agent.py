@@ -112,7 +112,13 @@ def test_infra_config_analyzer_records_llm_interpretation(monkeypatch) -> None:
 
     def fake_generate(prompt, config=None):
         calls.append(prompt)
-        return "DATABASE_URL is absent from the CI environment configuration."
+        return (
+            '{"config_interpretation": '
+            '"DATABASE_URL is absent from the CI environment configuration.", '
+            '"risk_summary": "Pytest will fail without database configuration.", '
+            '"relevant_check_ids": [], '
+            '"limitations": []}'
+        )
 
     monkeypatch.setattr(infra_config_analyzer_agent, "generate_with_ollama", fake_generate)
 
@@ -129,6 +135,20 @@ def test_infra_config_analyzer_records_llm_interpretation(monkeypatch) -> None:
     assert "DATABASE_URL" in llm_evidence[0].snippet
     assert llm_evidence[0].supports == updated.config_findings[0].finding_id
     assert llm_evidence[0].evidence_id in updated.config_findings[0].evidence_ids
+
+
+def test_infra_config_analyzer_malformed_json_raises(monkeypatch) -> None:
+    from src.agents import infra_config_analyzer_agent
+
+    def bad_generate(prompt, config=None):
+        return "not json"
+
+    monkeypatch.setattr(infra_config_analyzer_agent, "generate_with_ollama", bad_generate)
+
+    state = _initial_state()
+
+    with pytest.raises(infra_config_analyzer_agent.InfraConfigAnalyzerOutputParseError):
+        run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
 
 
 def test_infra_config_analyzer_ollama_failure_raises(monkeypatch) -> None:

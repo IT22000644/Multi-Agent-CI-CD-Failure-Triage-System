@@ -29,6 +29,8 @@ The system combines deterministic artifact analyzers with a local LLM (via Ollam
 - `Dockerfile`
 - Dependency files (`requirements.txt`, `package.json`, `pyproject.toml`)
 
+SLM-backed agents request structured JSON from Ollama and validate responses with Pydantic before adding interpretations or final report fields. Malformed model responses fail clearly instead of being silently copied into state.
+
 ### Supported Failure Categories
 
 - CI build failures
