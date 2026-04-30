@@ -155,6 +155,16 @@ You can pass another incident directory to exercise a different failure class:
 .\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_003_ci_config_failure --trace-dir traces\smoke_ci_config
 ```
 
+### Evaluate Sample Fixtures
+
+Run the full fixture evaluation set with real Ollama:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_fixtures.py
+```
+
+The evaluator compares each fixture's expected category in `incident.json` with the workflow's final classification, confirms report/action output, verifies SLM evidence, and writes evaluation traces/reports.
+
 ### Report Artifacts
 
 When `--report-dir` is provided, the CLI writes:
