@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.agents import (
     BuildTestAnalyzerInput,
     CoordinatorInput,
@@ -66,3 +68,44 @@ def test_build_test_analyzer_evidence_supports_existing_findings() -> None:
     updated = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
 
     _assert_evidence_supports_existing_findings(updated)
+
+
+def test_build_test_analyzer_records_llm_interpretation(monkeypatch) -> None:
+    from src.agents import build_test_analyzer_agent
+
+    calls: list[str] = []
+
+    def fake_generate(prompt, config=None):
+        calls.append(prompt)
+        return "DATABASE_URL is missing during the test run."
+
+    monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", fake_generate)
+
+    state = _initial_state()
+    updated = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+
+    assert calls
+    llm_evidence = [
+        item
+        for item in updated.evidence
+        if item.location == "ollama.semantic_interpretation"
+    ]
+    assert llm_evidence
+    assert "DATABASE_URL" in llm_evidence[0].snippet
+    assert llm_evidence[0].supports == updated.build_test_findings[0].finding_id
+    assert llm_evidence[0].evidence_id in updated.build_test_findings[0].evidence_ids
+
+
+def test_build_test_analyzer_ollama_failure_raises(monkeypatch) -> None:
+    from src.agents import build_test_analyzer_agent
+    from src.llm.ollama_client import OllamaGenerationError
+
+    def bad_generate(prompt, config=None):
+        raise OllamaGenerationError("no connection")
+
+    monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", bad_generate)
+
+    state = _initial_state()
+
+    with pytest.raises(OllamaGenerationError):
+        run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
