@@ -1,0 +1,4 @@
+2026-04-30T09:22:01Z Starting CI workflow validation
+2026-04-30T09:22:02Z Workflow validation stopped before runner allocation
+2026-04-30T09:22:02Z The workflow file did not define any executable jobs
+2026-04-30T09:22:02Z No tests were executed

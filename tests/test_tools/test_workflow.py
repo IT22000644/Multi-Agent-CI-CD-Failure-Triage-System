@@ -98,3 +98,26 @@ def test_workflow_handles_dependency_failure_fixture(tmp_path: Path) -> None:
         for item in state.evidence
     )
     assert (tmp_path / "incident_002_dependency_failure.jsonl").exists()
+
+
+def test_workflow_handles_ci_config_failure_fixture(tmp_path: Path) -> None:
+    state = run_triage_workflow(
+        "fixtures/sample_incidents/incident_003_ci_config_failure",
+        trace_dir=tmp_path,
+    )
+
+    assert state.metadata.incident_id == "incident_003_ci_config_failure"
+    assert any(
+        finding.category == FailureCategory.CI_CONFIG_ISSUE
+        for finding in state.config_findings
+    )
+    assert state.final_report is not None
+    assert state.final_report.failure_classification == FailureCategory.CI_CONFIG_ISSUE
+    assert state.recommended_actions
+    assert any(item.location == "ollama.incident_context" for item in state.evidence)
+    assert any(item.location == "ollama.semantic_interpretation" for item in state.evidence)
+    assert any(
+        item.location == "ollama.infra_config_interpretation"
+        for item in state.evidence
+    )
+    assert (tmp_path / "incident_003_ci_config_failure.jsonl").exists()

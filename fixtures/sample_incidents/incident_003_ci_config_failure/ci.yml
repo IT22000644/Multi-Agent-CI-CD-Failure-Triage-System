@@ -1,0 +1,10 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  DATABASE_URL: postgresql://ci-user:ci-pass@localhost:5432/app_test
+
+# jobs is intentionally missing for this fixture.

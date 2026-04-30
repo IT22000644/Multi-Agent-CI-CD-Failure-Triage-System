@@ -85,3 +85,25 @@ def test_export_report_supports_dependency_failure_fixture(tmp_path: Path) -> No
     assert "incident_002_dependency_failure" in markdown
     assert "dependency_issue" in markdown
     assert payload["classification"] == "dependency_issue"
+
+
+def test_export_report_supports_ci_config_failure_fixture(tmp_path: Path) -> None:
+    state = initialize_triage_state(
+        CoordinatorInput(
+            incident_dir="fixtures/sample_incidents/incident_003_ci_config_failure"
+        )
+    )
+    state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+    state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+    state = run_remediation_planner(RemediationPlannerInput(state=state))
+
+    assert state.final_report is not None
+    assert state.final_report.failure_classification == FailureCategory.CI_CONFIG_ISSUE
+
+    result = export_report(state, tmp_path)
+    markdown = result.markdown_report_path.read_text(encoding="utf-8")
+    payload = json.loads(result.summary_json_path.read_text(encoding="utf-8"))
+
+    assert "incident_003_ci_config_failure" in markdown
+    assert "ci_config_issue" in markdown
+    assert payload["classification"] == "ci_config_issue"

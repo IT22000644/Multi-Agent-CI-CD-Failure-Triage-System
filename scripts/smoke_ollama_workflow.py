@@ -53,11 +53,11 @@ def _model_is_available(config: OllamaConfig) -> bool:
 def _validate_smoke_output(state, trace_dir: Path) -> list[str]:
     errors: list[str] = []
 
-    if not state.observed_failures:
-        errors.append("workflow did not produce observed failures")
-
-    if not state.build_test_findings:
-        errors.append("workflow did not produce build/test findings")
+    all_findings = (
+        state.build_test_findings + state.config_findings + state.dependency_findings
+    )
+    if not all_findings:
+        errors.append("workflow did not produce any findings")
 
     coordinator_llm_evidence = [
         item for item in state.evidence if item.location == "ollama.incident_context"

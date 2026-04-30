@@ -151,6 +151,8 @@ You can pass another incident directory to exercise a different failure class:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_002_dependency_failure --trace-dir traces\smoke_dependency
+
+.\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_003_ci_config_failure --trace-dir traces\smoke_ci_config
 ```
 
 ### Report Artifacts
