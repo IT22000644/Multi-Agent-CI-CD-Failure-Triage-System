@@ -1,0 +1,11 @@
+{
+  "incident_id": "incident_003_ci_config_failure",
+  "title": "CI workflow rejected because jobs are missing",
+  "description": "CI pipeline could not start because the workflow YAML did not define a jobs mapping.",
+  "repository": "sample-local-triage-app",
+  "branch": "main",
+  "commit_sha": "f7g8h9i",
+  "pipeline_name": "ci",
+  "run_id": "run_2026_04_30_003",
+  "expected_failure_category": "ci_config_issue"
+}

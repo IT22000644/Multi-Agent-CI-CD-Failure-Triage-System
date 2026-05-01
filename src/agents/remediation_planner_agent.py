@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from src.llm import StructuredLLMOutputError, parse_llm_json_output
 from src.llm.ollama_client import generate_with_ollama
 from src.state import (
     ConfidenceLevel,
@@ -22,13 +23,25 @@ class RemediationPlannerInput(BaseModel):
     state: TriageState
 
 
+class RemediationPlannerOutputParseError(RuntimeError):
+    """Raised when the remediation planner LLM response is not valid structured output."""
+
+
+class RemediationPlannerLLMOutput(BaseModel):
+    executive_summary: str = Field(min_length=1)
+    root_cause_summary: str = Field(min_length=1)
+    recommended_action_details: str = Field(min_length=1)
+    limitations: list[str] = Field(default_factory=list)
+
+
 def _run_deterministic_planner(state: TriageState) -> TriageState:
     # Preserve previous deterministic planner behaviour
+    all_findings = (
+        state.build_test_findings + state.config_findings + state.dependency_findings
+    )
     env_findings = [
         f
-        for f in (
-            state.build_test_findings + state.config_findings + state.dependency_findings
-        )
+        for f in all_findings
         if f.category == FailureCategory.ENVIRONMENT_ISSUE
     ]
 
@@ -76,9 +89,6 @@ def _run_deterministic_planner(state: TriageState) -> TriageState:
         confidences.append(confidence_score)
     else:
         # Generic fallback using first finding if available
-        all_findings = (
-            state.build_test_findings + state.config_findings + state.dependency_findings
-        )
         if all_findings:
             f = all_findings[0]
             cause = SuspectedCause(
@@ -118,7 +128,7 @@ def _run_deterministic_planner(state: TriageState) -> TriageState:
     state.confidence_scores = confidences
 
     # Final report
-    fallback_category = FailureCategory.UNKNOWN
+    fallback_category = all_findings[0].category if all_findings else FailureCategory.UNKNOWN
     report = FinalReport(
         incident_id=state.metadata.incident_id,
         failure_classification=(
@@ -135,6 +145,19 @@ def _run_deterministic_planner(state: TriageState) -> TriageState:
 
     state.final_report = report
     return state
+
+
+def _parse_remediation_llm_output(text: str) -> RemediationPlannerLLMOutput:
+    try:
+        return parse_llm_json_output(
+            text,
+            RemediationPlannerLLMOutput,
+            context="Remediation planner",
+        )
+    except (StructuredLLMOutputError, ValidationError) as exc:
+        raise RemediationPlannerOutputParseError(
+            f"Remediation planner LLM output parse failed: {exc}"
+        ) from exc
 
 
 def _build_remediation_prompt(state: TriageState) -> str:
@@ -174,13 +197,15 @@ def _build_remediation_prompt(state: TriageState) -> str:
             parts.append(f"- {c.check_id}: {c.summary} (passed={c.passed})")
 
     parts.append(
-        "Please produce a concise remediation executive summary and a short root cause summary."
-    )
-    parts.append(
         "Do not invent IDs or modify structured evidence."
     )
     parts.append(
         "Avoid suggesting unsupported fixes such as code changes to private repositories."
+    )
+    parts.append(
+        "Return only valid JSON with this exact schema: "
+        '{"executive_summary": string, "root_cause_summary": string, '
+        '"recommended_action_details": string, "limitations": string[]}.'
     )
 
     return "\n".join(parts)
@@ -192,25 +217,26 @@ def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
     # Ollama is required: build prompt and call into LLM
     prompt = _build_remediation_prompt(state)
     llm_text = generate_with_ollama(prompt)
+    llm_output = _parse_remediation_llm_output(llm_text)
 
     # Create deterministic structured output and then enhance with LLM text
     updated = _run_deterministic_planner(state)
 
-    # Merge LLM text into final report fields safely
+    # Merge structured LLM output into final report fields safely
     if updated.final_report:
-        updated.final_report.executive_summary = llm_text.strip()
-        # root cause summary: keep structured cause but allow short LLM summary
-        if updated.final_report.root_cause_summary:
-            updated.final_report.root_cause_summary = (
-                llm_text.strip()
-            )
-        # Optionally enrich first recommended action details
+        updated.final_report.executive_summary = llm_output.executive_summary
+        updated.final_report.root_cause_summary = llm_output.root_cause_summary
+        updated.final_report.limitations = llm_output.limitations
+
         if updated.recommended_actions:
-            updated.recommended_actions[0].details = (
-                (updated.recommended_actions[0].details or "") + "\n\nLLM_NOTE: " + llm_text.strip()
-            )
+            updated.recommended_actions[0].details = llm_output.recommended_action_details
 
     return updated
 
 
-__all__ = ["RemediationPlannerInput", "run_remediation_planner"]
+__all__ = [
+    "RemediationPlannerInput",
+    "RemediationPlannerLLMOutput",
+    "RemediationPlannerOutputParseError",
+    "run_remediation_planner",
+]

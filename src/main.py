@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from src.graph import run_triage_workflow
+from src.reporting import ReportExportResult, export_report
 from src.state import TriageState
 
 
@@ -49,8 +50,21 @@ def _build_summary_payload(state: TriageState) -> dict[str, object]:
     }
 
 
+def _report_export_payload(result: ReportExportResult | None) -> dict[str, str] | None:
+    if result is None:
+        return None
+
+    return {
+        "report_dir": str(result.report_dir),
+        "summary_json": str(result.summary_json_path),
+        "markdown_report": str(result.markdown_report_path),
+    }
+
+
 def _print_human_summary(
-    state: TriageState, trace_file: Path | None = None
+    state: TriageState,
+    trace_file: Path | None = None,
+    report_export: ReportExportResult | None = None,
 ) -> None:
     """Print a human-readable summary to stdout."""
     print(f"Incident: {state.metadata.incident_id}")
@@ -81,6 +95,10 @@ def _print_human_summary(
     if trace_file:
         print(f"Trace File: {trace_file}")
 
+    if report_export:
+        print(f"Report JSON: {report_export.summary_json_path}")
+        print(f"Report Markdown: {report_export.markdown_report_path}")
+
 
 def main(argv: list[str] | None = None) -> int:
     """Execute the triage workflow from the command line.
@@ -107,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         "--json",
         action="store_true",
         help="Output results as JSON instead of human-readable format",
+    )
+    parser.add_argument(
+        "--report-dir",
+        help="Optional directory to write summary.json and report.md artifacts",
+        default=None,
     )
 
     args = parser.parse_args(argv)
@@ -138,12 +161,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.trace_dir:
             trace_file = Path(args.trace_dir) / f"{state.metadata.incident_id}.jsonl"
 
+        report_export = None
+        if args.report_dir:
+            report_export = export_report(
+                state,
+                args.report_dir,
+                trace_file=trace_file,
+            )
+
         # Output results
         if args.json:
             payload = _build_summary_payload(state)
+            payload["report_export"] = _report_export_payload(report_export)
             print(json.dumps(payload, indent=2))
         else:
-            _print_human_summary(state, trace_file)
+            _print_human_summary(state, trace_file, report_export)
 
         return 0
     except Exception as e:

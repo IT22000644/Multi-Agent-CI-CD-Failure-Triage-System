@@ -13,14 +13,14 @@ The system analyzes failed pipeline artifacts using deterministic tools and a mu
 
 ### Agents
 
-- **Coordinator Agent**: Initializes the triage state from incident artifacts
+- **Coordinator Agent**: Initializes triage state and uses an LLM to summarize incident context
 - **Build/Test Analyzer Agent**: Parses build logs and test output, then uses an LLM to interpret failure symptoms
-- **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies
+- **Infra/Config Analyzer Agent**: Validates CI configuration, Dockerfile, and dependencies, then uses an LLM to interpret configuration risk
 - **Remediation Planner Agent**: Generates suspected causes and recommended actions using an LLM (via local Ollama)
 
 ## Current Implementation
 
-The system combines deterministic artifact analyzers with a local LLM (via Ollama) for build/test interpretation and remediation planning. It accepts incident packages with artifacts such as:
+The system combines deterministic artifact analyzers with a local LLM (via Ollama) for incident context summarization, build/test interpretation, infrastructure/configuration interpretation, and remediation planning. It accepts incident packages with artifacts such as:
 
 - `incident.json` — metadata
 - `build.log` — build output
@@ -28,6 +28,10 @@ The system combines deterministic artifact analyzers with a local LLM (via Ollam
 - CI workflow files (e.g., `.github/workflows/ci.yml`)
 - `Dockerfile`
 - Dependency files (`requirements.txt`, `package.json`, `pyproject.toml`)
+
+SLM-backed agents request structured JSON from Ollama and validate responses with Pydantic before adding interpretations or final report fields. Malformed model responses fail clearly instead of being silently copied into state.
+
+For report-ready detail on personas, prompt constraints, reasoning logic, state updates, and assignment mapping, see [Agent Design and Prompt Strategy](docs/agent_design.md).
 
 ### Supported Failure Categories
 
@@ -83,7 +87,7 @@ docs/
 - **Python 3.12+** — Runtime
 - **LangGraph** — Multi-agent workflow orchestration
 - **Pydantic v2** — Type-safe shared state and validation
-- **Ollama** — Local LLM runtime (required for build/test interpretation and remediation planning)
+- **Ollama** — Local LLM runtime (required for SLM-backed agent interpretation and planning)
 - **langchain-ollama** — LLM client wrapper
 - **pytest** — Testing and evaluation
 - **ruff** — Linting and code quality
@@ -128,9 +132,28 @@ Make sure Ollama is running (`ollama serve` in a separate terminal), then use th
 
 # With trace logging
 .\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001 --trace-dir traces
+
+# With trace logging and exported report artifacts
+.\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001 --trace-dir traces --report-dir reports
 ```
 
 **Note**: If Ollama is unavailable, the CLI will fail with an `OllamaGenerationError` instead of silently falling back to deterministic-only analysis.
+
+### Create An Incident Package
+
+Use the packager script to create an incident folder from local repo files and command output:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\create_incident.py --id local_run_001 --repo . --build-command ".\.venv\Scripts\python.exe -m ruff check src tests scripts" --test-command ".\.venv\Scripts\python.exe -m pytest tests/test_agents tests/test_tools"
+```
+
+Then triage the generated incident:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.main .tmp\incidents\local_run_001 --trace-dir traces --report-dir reports
+```
+
+The packager records command exit codes and output even when commands fail. That is expected for incident capture: a failed build or test command becomes evidence for the triage workflow.
 
 ### Run Real Ollama Smoke Check
 
@@ -140,7 +163,36 @@ Use the smoke script to verify the full local runtime path with a real Ollama se
 .\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py
 ```
 
-The smoke check validates that Ollama is reachable, the configured model is available, both SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
+The smoke check validates that Ollama is reachable, the configured model is available, all SLM-backed workflow stages execute, trace output is written, and the final report contains remediation output.
+
+You can pass another incident directory to exercise a different failure class:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_002_dependency_failure --trace-dir traces\smoke_dependency
+
+.\.venv\Scripts\python.exe scripts\smoke_ollama_workflow.py fixtures\sample_incidents\incident_003_ci_config_failure --trace-dir traces\smoke_ci_config
+```
+
+### Evaluate Sample Fixtures
+
+Run the full fixture evaluation set with real Ollama:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_fixtures.py
+```
+
+The evaluator compares each fixture's expected category in `incident.json` with the workflow's final classification, confirms report/action output, verifies SLM evidence, and writes evaluation traces/reports.
+
+### Report Artifacts
+
+When `--report-dir` is provided, the CLI writes:
+
+```text
+reports/<incident_id>/summary.json
+reports/<incident_id>/report.md
+```
+
+The JSON file preserves the structured triage state for evaluation. The Markdown file is a human-readable incident report for demos and review.
 
 ### Run Tests
 
@@ -169,6 +221,17 @@ Tests automatically mock the Ollama LLM client and do not require a running Olla
 
 # Auto-fix formatting issues
 .\.venv\Scripts\python.exe -m ruff check src tests --fix
+```
+
+### Common Make Targets
+
+The repository includes a `Makefile` for common commands. Set `PYTHON` if you want to force the local virtual environment:
+
+```powershell
+make lint PYTHON=.\.venv\Scripts\python.exe
+make test PYTHON=.\.venv\Scripts\python.exe
+make run-sample PYTHON=.\.venv\Scripts\python.exe
+make evaluate PYTHON=.\.venv\Scripts\python.exe
 ```
 
 ### Ollama Configuration

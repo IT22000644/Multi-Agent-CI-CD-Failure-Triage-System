@@ -23,8 +23,11 @@ dist/
 *.egg-info/
 
 # Runtime output
+reports/
 traces/*.jsonl
+traces/**/*.jsonl
 traces/*.log
+traces/**/*.log
 .tmp/
 test-temp/
 

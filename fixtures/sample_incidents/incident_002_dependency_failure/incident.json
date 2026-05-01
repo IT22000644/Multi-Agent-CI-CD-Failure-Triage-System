@@ -1,0 +1,11 @@
+{
+  "incident_id": "incident_002_dependency_failure",
+  "title": "Dependency resolution failure during pip install",
+  "description": "CI pipeline failed while installing Python dependencies because a pinned package version could not be resolved.",
+  "repository": "sample-local-triage-app",
+  "branch": "main",
+  "commit_sha": "d4e5f6a",
+  "pipeline_name": "ci",
+  "run_id": "run_2026_04_29_002",
+  "expected_failure_category": "dependency_issue"
+}

@@ -1,0 +1,7 @@
+2026-04-29T10:14:02Z Starting CI job test
+2026-04-29T10:14:04Z python -m pip install --upgrade pip
+2026-04-29T10:14:08Z pip install -r requirements.txt
+ERROR: Could not find a version that satisfies the requirement acme-payments-sdk==99.99.99 (from versions: 1.8.0, 1.9.0, 2.0.0)
+ERROR: No matching distribution found for acme-payments-sdk==99.99.99
+2026-04-29T10:14:09Z Dependency installation failed during package resolution
+2026-04-29T10:14:09Z Process completed with exit code 1

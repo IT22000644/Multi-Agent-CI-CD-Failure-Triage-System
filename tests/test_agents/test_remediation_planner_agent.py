@@ -15,12 +15,17 @@ from src.agents import (
 from src.state import ConfidenceLevel
 
 
-def test_remediation_planner_creates_remediation_plan() -> None:
+def _analyzed_state():
     coord = CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
     state = initialize_triage_state(coord)
 
     state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
-    state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+    return run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+
+
+def test_remediation_planner_creates_remediation_plan() -> None:
+    state = _analyzed_state()
+
     # LLM call is mocked by conftest.py autouse fixture
     state = run_remediation_planner(RemediationPlannerInput(state=state))
 
@@ -47,14 +52,78 @@ def test_remediation_planner_creates_remediation_plan() -> None:
         assert score.subject_id
 
 
+def test_remediation_planner_uses_structured_llm_fields(monkeypatch) -> None:
+    from src.agents import remediation_planner_agent
+
+    def fake_generate(prompt, config=None):
+        return """
+        {
+          "executive_summary": "Configure CI environment variables.",
+          "root_cause_summary": "DATABASE_URL is not available to pytest.",
+          "recommended_action_details": "Add DATABASE_URL to repository secrets.",
+          "limitations": ["Only provided artifacts were inspected."]
+        }
+        """
+
+    monkeypatch.setattr(remediation_planner_agent, "generate_with_ollama", fake_generate)
+
+    state = run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+    assert state.final_report is not None
+    assert state.final_report.executive_summary == "Configure CI environment variables."
+    assert state.final_report.root_cause_summary == "DATABASE_URL is not available to pytest."
+    assert state.final_report.limitations == ["Only provided artifacts were inspected."]
+    assert state.recommended_actions[0].details == "Add DATABASE_URL to repository secrets."
+
+
+def test_remediation_planner_accepts_fenced_json_response(monkeypatch) -> None:
+    from src.agents import remediation_planner_agent
+
+    def fake_generate(prompt, config=None):
+        return """```json
+        {
+          "executive_summary": "Executive text.",
+          "root_cause_summary": "Root cause text.",
+          "recommended_action_details": "Action detail text.",
+          "limitations": []
+        }
+        ```"""
+
+    monkeypatch.setattr(remediation_planner_agent, "generate_with_ollama", fake_generate)
+
+    state = run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+    assert state.final_report is not None
+    assert state.final_report.executive_summary == "Executive text."
+    assert state.final_report.root_cause_summary == "Root cause text."
+
+
+def test_remediation_planner_malformed_json_raises(monkeypatch) -> None:
+    from src.agents import remediation_planner_agent
+
+    def bad_generate(prompt, config=None):
+        return "This is not JSON."
+
+    monkeypatch.setattr(remediation_planner_agent, "generate_with_ollama", bad_generate)
+
+    with pytest.raises(remediation_planner_agent.RemediationPlannerOutputParseError):
+        run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+
+def test_remediation_planner_missing_json_fields_raises(monkeypatch) -> None:
+    from src.agents import remediation_planner_agent
+
+    def bad_generate(prompt, config=None):
+        return '{"executive_summary": "Only one field."}'
+
+    monkeypatch.setattr(remediation_planner_agent, "generate_with_ollama", bad_generate)
+
+    with pytest.raises(remediation_planner_agent.RemediationPlannerOutputParseError):
+        run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+
 
 def test_remediation_planner_ollama_failure_raises(monkeypatch):
-    coord = CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
-    state = initialize_triage_state(coord)
-
-    state = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
-    state = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
-
     from src.llm.ollama_client import OllamaGenerationError
 
     def bad_generate(prompt, config=None):
@@ -64,4 +133,4 @@ def test_remediation_planner_ollama_failure_raises(monkeypatch):
     remediation_planner_agent.generate_with_ollama = bad_generate
 
     with pytest.raises(OllamaGenerationError):
-        run_remediation_planner(RemediationPlannerInput(state=state))
+        run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))

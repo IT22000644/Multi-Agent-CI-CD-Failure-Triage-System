@@ -53,17 +53,31 @@ def _model_is_available(config: OllamaConfig) -> bool:
 def _validate_smoke_output(state, trace_dir: Path) -> list[str]:
     errors: list[str] = []
 
-    if not state.observed_failures:
-        errors.append("workflow did not produce observed failures")
+    all_findings = (
+        state.build_test_findings + state.config_findings + state.dependency_findings
+    )
+    if not all_findings:
+        errors.append("workflow did not produce any findings")
 
-    if not state.build_test_findings:
-        errors.append("workflow did not produce build/test findings")
+    coordinator_llm_evidence = [
+        item for item in state.evidence if item.location == "ollama.incident_context"
+    ]
+    if not coordinator_llm_evidence:
+        errors.append("coordinator did not record Ollama incident context evidence")
 
     llm_evidence = [
         item for item in state.evidence if item.location == "ollama.semantic_interpretation"
     ]
     if not llm_evidence:
         errors.append("build/test analyzer did not record Ollama interpretation evidence")
+
+    infra_llm_evidence = [
+        item
+        for item in state.evidence
+        if item.location == "ollama.infra_config_interpretation"
+    ]
+    if not infra_llm_evidence:
+        errors.append("infra/config analyzer did not record Ollama interpretation evidence")
 
     if state.final_report is None:
         errors.append("workflow did not produce a final report")
@@ -80,6 +94,24 @@ def _validate_smoke_output(state, trace_dir: Path) -> list[str]:
         errors.append(f"trace file was not written: {trace_file}")
     elif trace_file.stat().st_size == 0:
         errors.append(f"trace file is empty: {trace_file}")
+    else:
+        expected_event_types = [
+            "coordinator.incident_loaded",
+            "build_test_analyzer.completed",
+            "infra_config_analyzer.completed",
+            "remediation_planner.completed",
+            "workflow.complete",
+        ]
+        trace_events = [
+            json.loads(line)
+            for line in trace_file.read_text(encoding="utf-8").splitlines()
+        ]
+        event_types = [event.get("event_type") for event in trace_events]
+        if event_types[-len(expected_event_types) :] != expected_event_types:
+            errors.append(
+                "trace file does not end with the expected workflow events: "
+                f"{expected_event_types}"
+            )
 
     return errors
 
@@ -96,11 +128,21 @@ def _build_summary(state, trace_dir: Path) -> dict[str, Any]:
         "observed_failure_count": len(state.observed_failures),
         "build_test_finding_count": len(state.build_test_findings),
         "config_finding_count": len(state.config_findings),
+        "coordinator_llm_context_evidence_count": len(
+            [item for item in state.evidence if item.location == "ollama.incident_context"]
+        ),
         "llm_interpretation_evidence_count": len(
             [
                 item
                 for item in state.evidence
                 if item.location == "ollama.semantic_interpretation"
+            ]
+        ),
+        "infra_llm_interpretation_evidence_count": len(
+            [
+                item
+                for item in state.evidence
+                if item.location == "ollama.infra_config_interpretation"
             ]
         ),
         "root_cause_summary": (

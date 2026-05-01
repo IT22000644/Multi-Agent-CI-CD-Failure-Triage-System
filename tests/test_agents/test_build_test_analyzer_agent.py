@@ -45,22 +45,23 @@ def test_build_test_analyzer_detects_environment_issue() -> None:
 
 def test_build_test_analyzer_does_not_mutate_input_state() -> None:
     state = _initial_state()
-    # ensure original is empty
+    original_evidence = list(state.evidence)
+
+    # ensure original analyzer-owned fields are empty
     assert state.observed_failures == []
     assert state.build_test_findings == []
-    assert state.evidence == []
 
     updated = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
 
-    # original still empty
+    # original analyzer-owned fields are unchanged
     assert state.observed_failures == []
     assert state.build_test_findings == []
-    assert state.evidence == []
+    assert state.evidence == original_evidence
 
     # updated has values
     assert updated.observed_failures
     assert updated.build_test_findings
-    assert updated.evidence
+    assert len(updated.evidence) > len(original_evidence)
 
 
 def test_build_test_analyzer_evidence_supports_existing_findings() -> None:
@@ -77,7 +78,12 @@ def test_build_test_analyzer_records_llm_interpretation(monkeypatch) -> None:
 
     def fake_generate(prompt, config=None):
         calls.append(prompt)
-        return "DATABASE_URL is missing during the test run."
+        return (
+            '{"failure_interpretation": "DATABASE_URL is missing during the test run.", '
+            '"likely_failure_mode": "environment_issue", '
+            '"relevant_evidence_ids": [], '
+            '"limitations": []}'
+        )
 
     monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", fake_generate)
 
@@ -94,6 +100,20 @@ def test_build_test_analyzer_records_llm_interpretation(monkeypatch) -> None:
     assert "DATABASE_URL" in llm_evidence[0].snippet
     assert llm_evidence[0].supports == updated.build_test_findings[0].finding_id
     assert llm_evidence[0].evidence_id in updated.build_test_findings[0].evidence_ids
+
+
+def test_build_test_analyzer_malformed_json_raises(monkeypatch) -> None:
+    from src.agents import build_test_analyzer_agent
+
+    def bad_generate(prompt, config=None):
+        return "not json"
+
+    monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", bad_generate)
+
+    state = _initial_state()
+
+    with pytest.raises(build_test_analyzer_agent.BuildTestAnalyzerOutputParseError):
+        run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
 
 
 def test_build_test_analyzer_ollama_failure_raises(monkeypatch) -> None:
