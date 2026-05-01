@@ -31,6 +31,8 @@ The system combines deterministic artifact analyzers with a local LLM (via Ollam
 
 SLM-backed agents request structured JSON from Ollama and validate responses with Pydantic before adding interpretations or final report fields. Malformed model responses fail clearly instead of being silently copied into state.
 
+For report-ready detail on personas, prompt constraints, reasoning logic, state updates, and assignment mapping, see [Agent Design and Prompt Strategy](docs/agent_design.md).
+
 ### Supported Failure Categories
 
 - CI build failures
@@ -136,6 +138,22 @@ Make sure Ollama is running (`ollama serve` in a separate terminal), then use th
 ```
 
 **Note**: If Ollama is unavailable, the CLI will fail with an `OllamaGenerationError` instead of silently falling back to deterministic-only analysis.
+
+### Create An Incident Package
+
+Use the packager script to create an incident folder from local repo files and command output:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\create_incident.py --id local_run_001 --repo . --build-command ".\.venv\Scripts\python.exe -m ruff check src tests scripts" --test-command ".\.venv\Scripts\python.exe -m pytest tests/test_agents tests/test_tools"
+```
+
+Then triage the generated incident:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.main .tmp\incidents\local_run_001 --trace-dir traces --report-dir reports
+```
+
+The packager records command exit codes and output even when commands fail. That is expected for incident capture: a failed build or test command becomes evidence for the triage workflow.
 
 ### Run Real Ollama Smoke Check
 
