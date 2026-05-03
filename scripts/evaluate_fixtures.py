@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.graph import run_triage_workflow  # noqa: E402
 from src.reporting import export_report  # noqa: E402
 from src.state import TriageState  # noqa: E402
+from src.validation import validate_state_consistency  # noqa: E402
 
 SLM_EVIDENCE_LOCATIONS = {
     "coordinator": "ollama.incident_context",
@@ -64,6 +65,87 @@ def _classification(state: TriageState) -> str | None:
     return None
 
 
+def _trace_event_types(trace_file: Path) -> set[str]:
+    types: set[str] = set()
+    if not trace_file.exists():
+        return types
+    for line in trace_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        et = payload.get("event_type")
+        if isinstance(et, str):
+            types.add(et)
+    return types
+
+
+def _observability_quality_checks(state: TriageState, trace_file: Path) -> list[str]:
+    """Quality gates beyond classification (trace richness, consistency, report depth)."""
+
+    errors: list[str] = []
+
+    if not trace_file.exists():
+        errors.append(f"trace file was not written: {trace_file}")
+        return errors
+
+    if trace_file.stat().st_size == 0:
+        errors.append(f"trace file is empty: {trace_file}")
+        return errors
+
+    types = _trace_event_types(trace_file)
+    required_events = (
+        "coordinator.input",
+        "coordinator.output",
+        "workflow.output",
+        "state_consistency.input",
+        "state_consistency.output",
+    )
+    for required in required_events:
+        if required not in types:
+            errors.append(f"trace missing required event type {required}")
+
+    if not any(name.startswith("tool.") for name in types):
+        errors.append("trace missing tool input/output events (no tool.* types)")
+
+    if not any(name.startswith("ollama.") for name in types):
+        errors.append("trace missing SLM request/response events (no ollama.* types)")
+
+    consistency = validate_state_consistency(state)
+    if not consistency.passed:
+        errors.append(
+            "state consistency validation failed: "
+            + "; ".join(f"{issue.code}: {issue.message}" for issue in consistency.errors)
+        )
+
+    report = state.final_report
+    if report is None:
+        errors.append("final report was not produced")
+    else:
+        if report.failure_classification is None:
+            errors.append("final report missing failure_classification")
+        if not (report.root_cause_summary or "").strip():
+            errors.append("final report missing root_cause_summary text")
+        if not report.recommended_actions:
+            errors.append("final report missing recommended_actions")
+
+    missing_evidence_issues = [
+        issue
+        for issue in consistency.errors
+        if issue.code == "missing_evidence_reference"
+    ]
+    if missing_evidence_issues:
+        errors.append(
+            "missing evidence references detected: "
+            + "; ".join(issue.message for issue in missing_evidence_issues[:5])
+        )
+
+    return errors
+
+
 def _validate_state(
     state: TriageState,
     expected_category: str,
@@ -87,10 +169,7 @@ def _validate_state(
         if not any(item.location == location for item in state.evidence):
             errors.append(f"{agent_name} SLM evidence was not recorded")
 
-    if not trace_file.exists():
-        errors.append(f"trace file was not written: {trace_file}")
-    elif trace_file.stat().st_size == 0:
-        errors.append(f"trace file is empty: {trace_file}")
+    errors.extend(_observability_quality_checks(state, trace_file))
 
     return errors
 

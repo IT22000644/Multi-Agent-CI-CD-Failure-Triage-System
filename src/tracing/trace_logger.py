@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
-from src.state import TraceEvent
+from src.state import AgentName, TraceEvent, TriageState
+from src.tracing.trace_metadata import sanitize_trace_metadata
 
 _SAFE_INCIDENT_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -56,4 +58,33 @@ def write_trace_events(
     return file_path
 
 
-__all__ = ["write_trace_event", "write_trace_events"]
+def record_trace_event(
+    state: TriageState,
+    trace_dir: str | Path | None,
+    *,
+    agent_name: AgentName | None,
+    event_type: str,
+    message: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Append a trace event to disk and to ``state.trace_events`` (sanitized metadata)."""
+
+    if trace_dir is None:
+        return
+
+    sequence = len(state.trace_events) + 1
+    incident_id = state.metadata.incident_id or "unknown"
+    raw_meta = dict(metadata or {})
+    safe_meta = sanitize_trace_metadata(raw_meta)
+    event = TraceEvent(
+        event_id=f"trace-{incident_id}-{sequence:03d}",
+        agent_name=agent_name,
+        event_type=event_type,
+        message=message,
+        metadata=safe_meta,
+    )
+    write_trace_event(trace_dir, incident_id, event)
+    state.trace_events = [*state.trace_events, event]
+
+
+__all__ = ["record_trace_event", "write_trace_event", "write_trace_events"]

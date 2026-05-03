@@ -66,7 +66,8 @@ src/
 ├── graph/
 │   └── workflow.py      # LangGraph multi-node workflow
 └── tracing/
-    └── trace_logger.py  # JSONL trace event logging
+    ├── trace_logger.py      # JSONL append + record helpers
+    └── trace_metadata.py    # Safe summaries & redaction for trace payloads
 
 fixtures/
 └── sample_incidents/
@@ -245,6 +246,12 @@ Run the full fixture evaluation set with real Ollama:
 ```
 
 The evaluator compares each fixture's expected category in `incident.json` with the workflow's final classification, confirms report/action output, verifies SLM evidence, and writes evaluation traces/reports.
+
+### Observability and Evaluation
+
+JSONL traces (`*.jsonl` under your trace directory) record structured workflow evidence **without** embedding full artifacts, prompts, or raw model transcripts. Expect explicit events for coordinator bootstrap (`coordinator.input` / `coordinator.output`), deterministic tools (`tool.*.input` / `tool.*.output`), SLM calls (`ollama.<agent>.request` / `ollama.<agent>.response` with counts and field names only), cross-agent validation (`state_consistency.input` / `state_consistency.output`), and the final graph boundary (`workflow.output`). Metadata values are truncated and scrubbed when they resemble secrets (for example tokens, passwords, credential-bearing URLs, or strings mentioning sensitive env-var patterns).
+
+Automated tests cover malformed SLM JSON across coordinator, build/test, infra/config, and remediation agents (structured parse errors propagate safely), ignore SLM-only invented IDs where those fields are not wired into shared state (evidence IDs for build/test; check IDs for infra), and enforce reference integrity via `validate_state_consistency` (duplicate IDs, dangling evidence/support targets, broken cause/action/report links). Fixture evaluation adds trace richness checks (tool + SLM events present), consistency validation on the returned state, and minimum final-report depth alongside classification accuracy.
 
 ### Report Artifacts
 

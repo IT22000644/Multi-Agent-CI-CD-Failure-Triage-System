@@ -96,7 +96,19 @@ def test_evaluate_fixture_passes_when_expected_category_matches(
     def fake_run_workflow(fixture_dir, trace_dir=None):
         trace_file = Path(trace_dir) / "incident_test.jsonl"
         trace_file.parent.mkdir(parents=True, exist_ok=True)
-        trace_file.write_text("{}\n", encoding="utf-8")
+        stub_types = [
+            "coordinator.input",
+            "coordinator.output",
+            "tool.build_log_parser.input",
+            "tool.build_log_parser.output",
+            "ollama.build_test_analyzer.request",
+            "ollama.build_test_analyzer.response",
+            "state_consistency.input",
+            "state_consistency.output",
+            "workflow.output",
+        ]
+        lines = "\n".join(json.dumps({"event_type": t}) for t in stub_types) + "\n"
+        trace_file.write_text(lines, encoding="utf-8")
         return _state()
 
     def fake_export_report(state, report_root, trace_file=None):
@@ -130,7 +142,17 @@ def test_evaluate_fixture_fails_on_classification_mismatch(
     def fake_run_workflow(fixture_dir, trace_dir=None):
         trace_file = Path(trace_dir) / "incident_test.jsonl"
         trace_file.parent.mkdir(parents=True, exist_ok=True)
-        trace_file.write_text("{}\n", encoding="utf-8")
+        stub_types = [
+            "coordinator.input",
+            "coordinator.output",
+            "tool.ci_config_validator.output",
+            "ollama.infra_config_analyzer.response",
+            "state_consistency.input",
+            "state_consistency.output",
+            "workflow.output",
+        ]
+        lines = "\n".join(json.dumps({"event_type": t}) for t in stub_types) + "\n"
+        trace_file.write_text(lines, encoding="utf-8")
         return _state(FailureCategory.ENVIRONMENT_ISSUE)
 
     monkeypatch.setattr(evaluate_fixtures, "run_triage_workflow", fake_run_workflow)

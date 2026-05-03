@@ -12,7 +12,9 @@ from src.agents import (
     run_infra_config_analyzer,
     run_remediation_planner,
 )
+from src.llm import StructuredLLMOutputError
 from src.state import ConfidenceLevel
+from src.validation import validate_state_consistency
 
 
 def _analyzed_state():
@@ -106,8 +108,14 @@ def test_remediation_planner_malformed_json_raises(monkeypatch) -> None:
 
     monkeypatch.setattr(remediation_planner_agent, "generate_with_ollama", bad_generate)
 
-    with pytest.raises(remediation_planner_agent.RemediationPlannerOutputParseError):
-        run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+    analyzed = _analyzed_state()
+    snapshot = analyzed.model_dump()
+
+    with pytest.raises(remediation_planner_agent.RemediationPlannerOutputParseError) as excinfo:
+        run_remediation_planner(RemediationPlannerInput(state=analyzed))
+
+    assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
+    assert analyzed.model_dump() == snapshot
 
 
 def test_remediation_planner_missing_json_fields_raises(monkeypatch) -> None:
@@ -120,6 +128,14 @@ def test_remediation_planner_missing_json_fields_raises(monkeypatch) -> None:
 
     with pytest.raises(remediation_planner_agent.RemediationPlannerOutputParseError):
         run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+
+def test_remediation_planner_respects_state_consistency_for_structured_links() -> None:
+    state = run_remediation_planner(RemediationPlannerInput(state=_analyzed_state()))
+
+    result = validate_state_consistency(state)
+
+    assert result.passed is True
 
 
 

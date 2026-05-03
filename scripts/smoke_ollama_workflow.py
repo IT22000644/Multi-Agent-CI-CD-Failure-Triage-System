@@ -95,23 +95,28 @@ def _validate_smoke_output(state, trace_dir: Path) -> list[str]:
     elif trace_file.stat().st_size == 0:
         errors.append(f"trace file is empty: {trace_file}")
     else:
-        expected_event_types = [
-            "coordinator.incident_loaded",
-            "build_test_analyzer.completed",
-            "infra_config_analyzer.completed",
-            "remediation_planner.completed",
-            "workflow.complete",
-        ]
         trace_events = [
             json.loads(line)
             for line in trace_file.read_text(encoding="utf-8").splitlines()
         ]
         event_types = [event.get("event_type") for event in trace_events]
-        if event_types[-len(expected_event_types) :] != expected_event_types:
+        expected_tail = ["state_consistency.output", "workflow.output"]
+        tail_ok = len(event_types) >= len(expected_tail)
+        tail_ok = tail_ok and event_types[-len(expected_tail) :] == expected_tail
+        if not tail_ok:
             errors.append(
-                "trace file does not end with the expected workflow events: "
-                f"{expected_event_types}"
+                "trace file does not end with state consistency + workflow output events: "
+                f"expected tail {expected_tail}, got tail {event_types[-len(expected_tail) :]}"
             )
+        required_anywhere = (
+            "coordinator.input",
+            "coordinator.output",
+            "tool.build_log_parser.output",
+            "ollama.build_test_analyzer.response",
+        )
+        missing = [name for name in required_anywhere if name not in event_types]
+        if missing:
+            errors.append(f"trace file missing expected event types: {missing}")
 
     return errors
 

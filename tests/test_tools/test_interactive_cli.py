@@ -404,18 +404,18 @@ class TestFormatTraceEvent:
     def test_formats_trace_event_with_all_fields(self):
         event = {
             "event_id": "trace-001",
-            "event_type": "coordinator.incident_loaded",
+            "event_type": "coordinator.output",
             "agent_name": "COORDINATOR",
-            "message": "Incident artifacts loaded",
+            "message": "Coordinator finished incident bootstrap",
             "metadata": {"artifact_count": 5, "evidence_count": 3},
         }
 
         result = _format_trace_event(event)
 
         assert "trace-001" in result
-        assert "coordinator.incident_loaded" in result
+        assert "coordinator.output" in result
         assert "COORDINATOR" in result
-        assert "Incident artifacts loaded" in result
+        assert "Coordinator finished incident bootstrap" in result
         assert "artifact_count" in result
         assert "5" in result
 

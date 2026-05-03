@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.llm import StructuredLLMOutputError, parse_llm_json_output
-from src.llm.ollama_client import generate_with_ollama
+from src.llm.ollama_client import generate_with_ollama, load_ollama_config_from_env
 from src.state import AgentName, ArtifactType, EvidenceItem, TriageState
 from src.tools import parse_build_and_test_logs
+from src.tracing.trace_logger import record_trace_event
+from src.tracing.trace_metadata import (
+    ollama_response_summary,
+    slm_state_context,
+    summarize_build_log_parse_result,
+)
 
 
 class BuildTestAnalyzerInput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     state: TriageState
+    trace_dir: str | Path | None = None
 
 
 class BuildTestAnalyzerOutputParseError(RuntimeError):
@@ -107,19 +116,95 @@ def _append_llm_interpretation_evidence(
 
 def run_build_test_analyzer(input_data: BuildTestAnalyzerInput) -> TriageState:
     state = input_data.state.model_copy(deep=True)
+    td = input_data.trace_dir
+
+    artifact_names = [
+        name for name in ("build.log", "test-report.txt") if name in state.artifacts
+    ]
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="build_test_analyzer.input",
+            message="Build/test analyzer inputs",
+            metadata={"artifact_names": artifact_names},
+        )
 
     build_log = state.artifacts.get("build.log")
     test_report = state.artifacts.get("test-report.txt")
 
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="tool.build_log_parser.input",
+            message="Parsing build and test artifacts",
+            metadata={"artifact_names": artifact_names},
+        )
+
     result = parse_build_and_test_logs(build_log, test_report)
+
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="tool.build_log_parser.output",
+            message="Build log parser produced failures and findings",
+            metadata=summarize_build_log_parse_result(result),
+        )
 
     state.observed_failures = list(result.observed_failures)
     state.build_test_findings = list(result.findings)
     state.evidence = list(state.evidence) + list(result.evidence)
 
     prompt = _build_failure_interpretation_prompt(state)
-    interpretation = _parse_build_test_llm_output(generate_with_ollama(prompt))
+    cfg = load_ollama_config_from_env()
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="ollama.build_test_analyzer.request",
+            message="SLM request for build/test semantic interpretation",
+            metadata={
+                "model": cfg.model,
+                "prompt_character_count": len(prompt),
+                "state_context": slm_state_context(state),
+            },
+        )
+
+    raw_response = generate_with_ollama(prompt)
+    interpretation = _parse_build_test_llm_output(raw_response)
+
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="ollama.build_test_analyzer.response",
+            message="SLM response for build/test analyzer",
+            metadata=ollama_response_summary(interpretation, raw_text=raw_response),
+        )
+
     _append_llm_interpretation_evidence(state, interpretation)
+
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.BUILD_TEST_ANALYZER,
+            event_type="build_test_analyzer.output",
+            message="Build/test analyzer finished",
+            metadata={
+                **summarize_build_log_parse_result(result),
+                "classification_hints": sorted(
+                    {f.category.value for f in state.build_test_findings}
+                ),
+            },
+        )
 
     return state
 

@@ -26,30 +26,67 @@ def test_workflow_supports_tracing(tmp_path: Path) -> None:
     trace_file = tmp_path / "incident_001.jsonl"
     assert trace_file.exists()
 
-    events = [
-        json.loads(line)
-        for line in trace_file.read_text(encoding="utf-8").splitlines()
-    ]
-    event_types = [event["event_type"] for event in events]
-    assert event_types == [
-        "coordinator.incident_loaded",
-        "build_test_analyzer.completed",
-        "infra_config_analyzer.completed",
-        "remediation_planner.completed",
-        "state_consistency.completed",
-        "workflow.complete",
-    ]
-    assert event_types == [event.event_type for event in state.trace_events]
-    assert events[0]["metadata"]["artifact_count"] >= 1
-    assert events[0]["metadata"]["llm_incident_context_evidence_count"] >= 1
-    assert events[1]["metadata"]["observed_failure_count"] >= 1
-    assert events[1]["metadata"]["llm_interpretation_evidence_count"] >= 1
-    assert events[2]["metadata"]["validated_check_count"] >= 1
-    assert events[2]["metadata"]["llm_interpretation_evidence_count"] >= 1
-    assert events[3]["metadata"]["recommended_action_count"] >= 1
-    assert events[4]["metadata"]["passed"] is True
-    assert events[5]["metadata"]["classification"] == "environment_issue"
-    assert events[5]["metadata"]["state_consistency_passed"] is True
+    raw_trace = trace_file.read_text(encoding="utf-8")
+    events = [json.loads(line) for line in raw_trace.splitlines()]
+    types = [event["event_type"] for event in events]
+
+    assert types[-2:] == ["state_consistency.output", "workflow.output"]
+    assert types == [event.event_type for event in state.trace_events]
+
+    required = {
+        "coordinator.input",
+        "coordinator.output",
+        "tool.artifact_loader.input",
+        "tool.artifact_loader.output",
+        "build_test_analyzer.input",
+        "tool.build_log_parser.input",
+        "tool.build_log_parser.output",
+        "ollama.build_test_analyzer.request",
+        "ollama.build_test_analyzer.response",
+        "build_test_analyzer.output",
+        "infra_config_analyzer.input",
+        "tool.ci_config_validator.input",
+        "tool.ci_config_validator.output",
+        "tool.dockerfile_inspector.input",
+        "tool.dockerfile_inspector.output",
+        "tool.dependency_inspector.input",
+        "tool.dependency_inspector.output",
+        "ollama.infra_config_analyzer.request",
+        "ollama.infra_config_analyzer.response",
+        "infra_config_analyzer.output",
+        "remediation_planner.input",
+        "ollama.remediation_planner.request",
+        "ollama.remediation_planner.response",
+        "remediation_planner.output",
+        "state_consistency.input",
+        "state_consistency.output",
+        "workflow.output",
+    }
+    assert required.issubset(set(types))
+
+    build_parser_out = next(
+        e for e in events if e["event_type"] == "tool.build_log_parser.output"
+    )
+    meta = build_parser_out["metadata"]
+    assert "finding_ids" in meta
+    assert "evidence_ids" in meta
+    assert meta["observed_failure_count"] >= 1
+
+    coord_out = next(e for e in events if e["event_type"] == "coordinator.output")
+    assert coord_out["metadata"]["incident_id"] == "incident_001"
+    assert "artifact_names" in coord_out["metadata"]
+
+    ollama_bt = next(e for e in events if e["event_type"] == "ollama.build_test_analyzer.request")
+    assert "model" in ollama_bt["metadata"]
+    assert ollama_bt["metadata"]["prompt_character_count"] >= 1
+    assert "finding_count" in ollama_bt["metadata"]["state_context"]
+
+    workflow_out = events[-1]
+    assert workflow_out["metadata"]["classification"] == "environment_issue"
+    assert workflow_out["metadata"]["state_consistency_passed"] is True
+
+    distinctive_log_line = "test_database_url_is_configured"
+    assert distinctive_log_line not in raw_trace
 
 
 def test_compiled_workflow_can_be_invoked_directly() -> None:

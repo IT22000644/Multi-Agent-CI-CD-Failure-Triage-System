@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agents import CoordinatorInput, run_coordinator
+from src.agents import CoordinatorInput, coordinator_agent, initialize_triage_state, run_coordinator
 from src.state import TriageState
 
 
@@ -71,16 +71,32 @@ def test_coordinator_records_llm_incident_context(monkeypatch) -> None:
 
 def test_coordinator_malformed_json_raises(monkeypatch) -> None:
     from src.agents import coordinator_agent
+    from src.llm import StructuredLLMOutputError
 
     def bad_generate(prompt, config=None):
         return "not json"
 
     monkeypatch.setattr(coordinator_agent, "generate_with_ollama", bad_generate)
 
-    with pytest.raises(coordinator_agent.CoordinatorOutputParseError):
+    with pytest.raises(coordinator_agent.CoordinatorOutputParseError) as excinfo:
         run_coordinator(
             CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
         )
+
+    assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
+
+
+def test_initialize_triage_state_malformed_llm_json_raises_parse_error(monkeypatch) -> None:
+    from src.llm import StructuredLLMOutputError
+
+    monkeypatch.setattr(coordinator_agent, "generate_with_ollama", lambda *a, **k: "not json")
+
+    with pytest.raises(coordinator_agent.CoordinatorOutputParseError) as excinfo:
+        initialize_triage_state(
+            CoordinatorInput(incident_dir="fixtures/sample_incidents/incident_001")
+        )
+
+    assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
 
 
 def test_coordinator_ollama_failure_raises(monkeypatch) -> None:

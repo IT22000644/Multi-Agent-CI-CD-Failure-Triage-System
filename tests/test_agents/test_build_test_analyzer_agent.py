@@ -104,6 +104,7 @@ def test_build_test_analyzer_records_llm_interpretation(monkeypatch) -> None:
 
 def test_build_test_analyzer_malformed_json_raises(monkeypatch) -> None:
     from src.agents import build_test_analyzer_agent
+    from src.llm import StructuredLLMOutputError
 
     def bad_generate(prompt, config=None):
         return "not json"
@@ -111,9 +112,36 @@ def test_build_test_analyzer_malformed_json_raises(monkeypatch) -> None:
     monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", bad_generate)
 
     state = _initial_state()
+    evidence_snapshot = list(state.evidence)
 
-    with pytest.raises(build_test_analyzer_agent.BuildTestAnalyzerOutputParseError):
+    with pytest.raises(build_test_analyzer_agent.BuildTestAnalyzerOutputParseError) as excinfo:
         run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+
+    assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
+    assert state.evidence == evidence_snapshot
+
+
+def test_build_test_analyzer_ignores_nonexistent_evidence_ids_from_slm(monkeypatch) -> None:
+    """SLM may invent relevant_evidence_ids; structured state only keeps deterministic links."""
+
+    from src.agents import build_test_analyzer_agent
+
+    def fake_generate(prompt, config=None):
+        return (
+            '{"failure_interpretation": "Interpretation referencing bogus IDs.", '
+            '"likely_failure_mode": "environment_issue", '
+            '"relevant_evidence_ids": ["evidence-does-not-exist"], '
+            '"limitations": []}'
+        )
+
+    monkeypatch.setattr(build_test_analyzer_agent, "generate_with_ollama", fake_generate)
+
+    state = _initial_state()
+    updated = run_build_test_analyzer(BuildTestAnalyzerInput(state=state))
+
+    assert "evidence-does-not-exist" not in {e.evidence_id for e in updated.evidence}
+    for finding in updated.build_test_findings:
+        assert "evidence-does-not-exist" not in finding.evidence_ids
 
 
 def test_build_test_analyzer_ollama_failure_raises(monkeypatch) -> None:

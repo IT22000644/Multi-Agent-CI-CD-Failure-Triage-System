@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.llm import StructuredLLMOutputError, parse_llm_json_output
-from src.llm.ollama_client import generate_with_ollama
+from src.llm.ollama_client import generate_with_ollama, load_ollama_config_from_env
 from src.state import (
+    AgentName,
     ConfidenceLevel,
     ConfidenceScore,
     ConfidenceSubjectType,
@@ -15,12 +18,21 @@ from src.state import (
     SuspectedCause,
     TriageState,
 )
+from src.tracing.trace_logger import record_trace_event
+from src.tracing.trace_metadata import (
+    ollama_response_summary,
+    slm_state_context,
+    summarize_actions,
+    summarize_causes,
+    summarize_confidence_scores,
+)
 
 
 class RemediationPlannerInput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     state: TriageState
+    trace_dir: str | Path | None = None
 
 
 class RemediationPlannerOutputParseError(RuntimeError):
@@ -213,16 +225,53 @@ def _build_remediation_prompt(state: TriageState) -> str:
 
 def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
     state = input_data.state.model_copy(deep=True)
+    td = input_data.trace_dir
 
-    # Ollama is required: build prompt and call into LLM
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.REMEDIATION_PLANNER,
+            event_type="remediation_planner.input",
+            message="Remediation planner inputs",
+            metadata={
+                **slm_state_context(state),
+                **summarize_causes(state),
+                **summarize_actions(state),
+            },
+        )
+
     prompt = _build_remediation_prompt(state)
+    cfg = load_ollama_config_from_env()
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.REMEDIATION_PLANNER,
+            event_type="ollama.remediation_planner.request",
+            message="SLM request for remediation narrative",
+            metadata={
+                "model": cfg.model,
+                "prompt_character_count": len(prompt),
+                "state_context": slm_state_context(state),
+            },
+        )
+
     llm_text = generate_with_ollama(prompt)
     llm_output = _parse_remediation_llm_output(llm_text)
 
-    # Create deterministic structured output and then enhance with LLM text
+    if td is not None:
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.REMEDIATION_PLANNER,
+            event_type="ollama.remediation_planner.response",
+            message="SLM response for remediation planner",
+            metadata=ollama_response_summary(llm_output, raw_text=llm_text),
+        )
+
     updated = _run_deterministic_planner(state)
 
-    # Merge structured LLM output into final report fields safely
     if updated.final_report:
         updated.final_report.executive_summary = llm_output.executive_summary
         updated.final_report.root_cause_summary = llm_output.root_cause_summary
@@ -230,6 +279,27 @@ def run_remediation_planner(input_data: RemediationPlannerInput) -> TriageState:
 
         if updated.recommended_actions:
             updated.recommended_actions[0].details = llm_output.recommended_action_details
+
+    if td is not None:
+        classification = (
+            updated.final_report.failure_classification.value
+            if updated.final_report and updated.final_report.failure_classification
+            else None
+        )
+        record_trace_event(
+            state,
+            td,
+            agent_name=AgentName.REMEDIATION_PLANNER,
+            event_type="remediation_planner.output",
+            message="Remediation planner produced causes, actions, and report",
+            metadata={
+                "failure_classification": classification,
+                **summarize_causes(updated),
+                **summarize_actions(updated),
+                **summarize_confidence_scores(updated),
+                "has_final_report": updated.final_report is not None,
+            },
+        )
 
     return updated
 

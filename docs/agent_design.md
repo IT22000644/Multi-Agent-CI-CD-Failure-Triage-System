@@ -258,17 +258,9 @@ The Pydantic model uses strict validation and forbids unexpected fields, which p
 
 ## Observability and AgentOps
 
-The workflow writes JSONL trace events for each stage:
+The workflow writes JSONL trace events with explicit coordinator bootstrap (`coordinator.input` / `coordinator.output`), artifact loading (`tool.artifact_loader.*`), per-stage analyzer inputs and outputs (`build_test_analyzer.*`, `infra_config_analyzer.*`, `remediation_planner.*`), deterministic tools (`tool.build_log_parser.*`, `tool.ci_config_validator.*`, `tool.dockerfile_inspector.*`, `tool.dependency_inspector.*`), SLM summaries (`ollama.<stage>.request` / `ollama.<stage>.response`), consistency validation (`state_consistency.input` / `state_consistency.output`), and the terminal graph marker (`workflow.output`).
 
-```text
-coordinator.incident_loaded
-build_test_analyzer.completed
-infra_config_analyzer.completed
-remediation_planner.completed
-workflow.complete
-```
-
-Each trace event records the agent, event type, message, timestamp, and metadata such as finding counts, SLM evidence counts, action counts, and final classification. This makes the MAS auditable during demos and evaluation.
+Each trace event records the agent (when applicable), event type, message, timestamp, and safe metadata such as IDs, counts, categories, configured model id, prompt/response lengths, parsed JSON field names, and classification—not raw prompts, artifacts, secrets, or full logs.
 
 ## Evaluation Strategy
 

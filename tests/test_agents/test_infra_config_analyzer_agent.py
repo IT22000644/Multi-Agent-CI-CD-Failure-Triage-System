@@ -139,6 +139,7 @@ def test_infra_config_analyzer_records_llm_interpretation(monkeypatch) -> None:
 
 def test_infra_config_analyzer_malformed_json_raises(monkeypatch) -> None:
     from src.agents import infra_config_analyzer_agent
+    from src.llm import StructuredLLMOutputError
 
     def bad_generate(prompt, config=None):
         return "not json"
@@ -146,9 +147,37 @@ def test_infra_config_analyzer_malformed_json_raises(monkeypatch) -> None:
     monkeypatch.setattr(infra_config_analyzer_agent, "generate_with_ollama", bad_generate)
 
     state = _initial_state()
+    checks_before = list(state.validated_checks)
 
-    with pytest.raises(infra_config_analyzer_agent.InfraConfigAnalyzerOutputParseError):
+    with pytest.raises(infra_config_analyzer_agent.InfraConfigAnalyzerOutputParseError) as excinfo:
         run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+
+    assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
+    assert state.validated_checks == checks_before
+
+
+def test_infra_config_analyzer_fake_check_ids_from_slm_are_not_added_to_validated_checks(
+    monkeypatch,
+) -> None:
+    """relevant_check_ids from the SLM are advisory only; validated_checks stay tool-derived."""
+
+    from src.agents import infra_config_analyzer_agent
+
+    def fake_generate(prompt, config=None):
+        return (
+            '{"config_interpretation": "Synthetic interpretation.", '
+            '"risk_summary": null, '
+            '"relevant_check_ids": ["check-invented-by-model"], '
+            '"limitations": []}'
+        )
+
+    monkeypatch.setattr(infra_config_analyzer_agent, "generate_with_ollama", fake_generate)
+
+    state = _initial_state()
+    updated = run_infra_config_analyzer(InfraConfigAnalyzerInput(state=state))
+
+    check_ids = {c.check_id for c in updated.validated_checks}
+    assert "check-invented-by-model" not in check_ids
 
 
 def test_infra_config_analyzer_ollama_failure_raises(monkeypatch) -> None:
