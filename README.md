@@ -168,15 +168,25 @@ Starts a REPL-style shell (`cmd.Cmd`) with prompt `triage>`. Step through agents
 .\.venv\Scripts\python.exe scripts\interactive_cli.py
 ```
 
-The REPL prints colored headers and status lines when your terminal supports ANSI (disable with [`NO_COLOR`](https://no-color.org/) in the environment).
+The REPL prints colored headers and status lines when your terminal supports ANSI (disable with [`NO_COLOR`](https://no-color.org/) in the environment). The default startup shows an **ASCII welcome** (banner + quickstart). Use **`--no-welcome`** for a quiet entry (e.g. automation).
+
+**Highlights:** `tour` (walkthrough), `summary` (compact triage + root cause + fixes + confidence), `timeline` (recent trace events from JSONL or session), `investigate` / `investigate next` (step-through review), `find failures|findings [text]`, `show evidence <id>`, `menu` (workflow cheat sheet), `set verbose on|off`, **`l`** / **`r`** aliases for `load` / `run`, and **`run pipeline`** (same as `run all`). Use **`evidence -v`** or session verbose for longer snippets.
 
 Example session:
 
 ```
+triage> tour
 triage> guide
 triage> sample
 triage> load fixtures/sample_incidents/incident_001
-triage> run build
+triage> run all
+triage> summary
+triage> timeline 30
+triage> investigate
+triage> investigate next
+triage> find findings DATABASE
+triage> evidence
+triage> show evidence <id-from-list-above>
 triage> findings
 triage> ask build Which evidence supports the failure category?
 triage> run infra

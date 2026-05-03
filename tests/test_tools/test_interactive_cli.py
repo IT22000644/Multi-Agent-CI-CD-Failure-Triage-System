@@ -131,6 +131,13 @@ class TestFormatHelpers:
         text = format_evidence(state)
         assert "..." in text
 
+    def test_format_evidence_verbose_allows_longer_snippet(self):
+        state = _minimal_state()
+        state.evidence[0].snippet = "y" * 300
+        brief = format_evidence(state, verbose=False)
+        verbose = format_evidence(state, verbose=True)
+        assert brief.count("y") < verbose.count("y")
+
 
 class TestGuideAndSampleData:
     def test_guide_mentions_expected_files_and_assignment_alignment(self):
@@ -307,6 +314,45 @@ class TestWorkspaceShellRobustness:
         shell.session.state = _minimal_state()
         shell.onecmd("inspect build")
         assert "usage:" in capsys.readouterr().out.lower()
+
+    def test_help_lists_summary_and_timeline(self, capsys):
+        shell = AgentWorkspaceShell()
+        shell.onecmd("help")
+        out = capsys.readouterr().out
+        assert "summary" in out
+        assert "timeline" in out
+        assert "investigate" in out
+
+    def test_summary_prints_snapshot(self, capsys):
+        shell = AgentWorkspaceShell()
+        shell.session.state = _minimal_state()
+        shell.onecmd("summary")
+        out = capsys.readouterr().out
+        assert "Triage snapshot" in out
+        assert "inc-test" in out
+
+    def test_find_findings_filters(self, capsys):
+        shell = AgentWorkspaceShell()
+        shell.session.state = _minimal_state()
+        shell.onecmd("find findings DATABASE")
+        out = capsys.readouterr().out
+        assert "find-001" in out
+
+    def test_show_evidence_unknown_id(self, capsys):
+        shell = AgentWorkspaceShell()
+        shell.session.state = _minimal_state()
+        shell.onecmd("show evidence does-not-exist")
+        out = capsys.readouterr().out
+        assert "No evidence" in out or "[err]" in out
+
+    def test_load_alias_invokes_load(self, monkeypatch, capsys, fixture_incident_001):
+        monkeypatch.setattr(
+            "src.agents.coordinator_agent.generate_with_ollama",
+            lambda _p: _fake_llm_coordinator(),
+        )
+        shell = AgentWorkspaceShell()
+        shell.onecmd(f"l {fixture_incident_001}")
+        assert shell.session.state is not None
 
 
 class TestFindLatestReport:
