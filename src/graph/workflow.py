@@ -17,6 +17,7 @@ from src.agents import (
 )
 from src.state import AgentName, TraceEvent, TriageState
 from src.tracing.trace_logger import write_trace_event
+from src.validation import apply_state_consistency_validation, validate_state_consistency
 
 
 class WorkflowState(TypedDict, total=False):
@@ -147,6 +148,25 @@ def remediation_planner_node(state: WorkflowState) -> WorkflowState:
             "confidence_score_count": len(updated.confidence_scores),
         },
     )
+    return {**state, "triage_state": updated}
+
+
+def state_consistency_validator_node(state: WorkflowState) -> WorkflowState:
+    triage_state: TriageState = state["triage_state"]
+    result = validate_state_consistency(triage_state)
+    updated = apply_state_consistency_validation(triage_state)
+    _record_trace_event(
+        state.get("trace_dir"),
+        updated,
+        agent_name=AgentName.REMEDIATION_PLANNER,
+        event_type="state_consistency.completed",
+        message="Cross-agent state consistency validation completed",
+        metadata={
+            "passed": result.passed,
+            "error_count": len(result.errors),
+            "warning_count": len(result.warnings),
+        },
+    )
     _record_trace_event(
         state.get("trace_dir"),
         updated,
@@ -160,6 +180,7 @@ def remediation_planner_node(state: WorkflowState) -> WorkflowState:
                 else None
             ),
             "has_final_report": updated.final_report is not None,
+            "state_consistency_passed": result.passed,
         },
     )
     return {**state, "triage_state": updated}
@@ -171,12 +192,14 @@ def build_triage_workflow():
     graph.add_node("build_test_analyzer", build_test_analyzer_node)
     graph.add_node("infra_config_analyzer", infra_config_analyzer_node)
     graph.add_node("remediation_planner", remediation_planner_node)
+    graph.add_node("state_consistency_validator", state_consistency_validator_node)
     # Connect nodes to form a linear pipeline
     graph.add_edge("coordinator", "build_test_analyzer")
     graph.add_edge("build_test_analyzer", "infra_config_analyzer")
     graph.add_edge("infra_config_analyzer", "remediation_planner")
+    graph.add_edge("remediation_planner", "state_consistency_validator")
     graph.set_entry_point("coordinator")
-    graph.set_finish_point("remediation_planner")
+    graph.set_finish_point("state_consistency_validator")
     return graph.compile()
 
 
@@ -202,4 +225,5 @@ __all__ = [
     "infra_config_analyzer_node",
     "remediation_planner_node",
     "run_triage_workflow",
+    "state_consistency_validator_node",
 ]

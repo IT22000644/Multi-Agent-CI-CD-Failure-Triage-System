@@ -36,6 +36,7 @@ def test_workflow_supports_tracing(tmp_path: Path) -> None:
         "build_test_analyzer.completed",
         "infra_config_analyzer.completed",
         "remediation_planner.completed",
+        "state_consistency.completed",
         "workflow.complete",
     ]
     assert event_types == [event.event_type for event in state.trace_events]
@@ -46,7 +47,9 @@ def test_workflow_supports_tracing(tmp_path: Path) -> None:
     assert events[2]["metadata"]["validated_check_count"] >= 1
     assert events[2]["metadata"]["llm_interpretation_evidence_count"] >= 1
     assert events[3]["metadata"]["recommended_action_count"] >= 1
-    assert events[4]["metadata"]["classification"] == "environment_issue"
+    assert events[4]["metadata"]["passed"] is True
+    assert events[5]["metadata"]["classification"] == "environment_issue"
+    assert events[5]["metadata"]["state_consistency_passed"] is True
 
 
 def test_compiled_workflow_can_be_invoked_directly() -> None:

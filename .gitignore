@@ -29,6 +29,7 @@ traces/**/*.jsonl
 traces/*.log
 traces/**/*.log
 .tmp/
+.tmp-test-temp*/
 test-temp/
 
 # OS/editor files

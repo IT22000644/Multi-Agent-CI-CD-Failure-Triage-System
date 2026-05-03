@@ -3,6 +3,7 @@ from src.graph.workflow import (
 	build_triage_workflow,
 	coordinator_node,
 	run_triage_workflow,
+	state_consistency_validator_node,
 )
 
 __all__ = [
@@ -10,6 +11,7 @@ __all__ = [
 	"build_triage_workflow",
 	"coordinator_node",
 	"run_triage_workflow",
+	"state_consistency_validator_node",
 ]
 """LangGraph workflow orchestration for the triage system.
 
