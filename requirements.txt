@@ -20,7 +20,7 @@ langgraph-checkpoint==4.0.3
 langgraph-prebuilt==1.0.12
 langgraph-sdk==0.3.13
 langsmith==0.7.37
--e git+ssh://git@github.com/IT22000644/Multi-Agent-CI-CD-Failure-Triage-System.git@12ea7ea2a43454523ca8442eee48831128c8461f#egg=multi_agent_ci_cd_failure_triage_system
+-e git+ssh://git@github.com/IT22000644/Multi-Agent-CI-CD-Failure-Triage-System.git@b28e2359c992b69efe71ad1c4ac5df4260da51fa#egg=multi_agent_ci_cd_failure_triage_system
 ollama==0.6.1
 orjson==3.11.8
 ormsgpack==1.12.2
@@ -31,6 +31,7 @@ pydantic_core==2.46.3
 Pygments==2.20.0
 pytest==9.0.3
 pytest-cov==7.1.0
+python-dotenv==1.2.2
 PyYAML==6.0.3
 requests==2.33.1
 requests-toolbelt==1.0.0
