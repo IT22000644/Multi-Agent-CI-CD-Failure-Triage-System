@@ -155,6 +155,32 @@ Then triage the generated incident:
 
 The packager records command exit codes and output even when commands fail. That is expected for incident capture: a failed build or test command becomes evidence for the triage workflow.
 
+### Interactive CLI
+
+For a user-friendly menu-driven experience, use the interactive CLI:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\interactive_cli.py
+```
+
+The interactive menu allows you to:
+
+1. **Run triage on an existing incident folder** — Analyze an incident package and optionally output traces and reports
+2. **Create an incident package from local repo** — Package local repository artifacts with optional build/test command output
+3. **Create incident package and run triage** — Create a package and immediately run triage (combine options 1 and 2)
+4. **View latest report** — Display the most recently generated triage report
+5. **View trace events for an incident** — Inspect detailed trace events from a triage run
+6. **Evaluate sample fixtures** — Run the full fixture evaluation suite
+7. **Exit** — Close the CLI
+
+**Note**: Ensure Ollama is running (`ollama serve` in a separate terminal) before using options 1, 3, and 6.
+
+Default paths used:
+- Incident packages: `.tmp/incidents`
+- Traces: `traces`
+- Reports: `reports`
+- Fixtures: `fixtures/sample_incidents`
+
 ### Run Real Ollama Smoke Check
 
 Use the smoke script to verify the full local runtime path with a real Ollama server:
@@ -236,7 +262,9 @@ make evaluate PYTHON=.\.venv\Scripts\python.exe
 
 ### Ollama Configuration
 
-Customize Ollama behavior using environment variables:
+Customize Ollama in either of two ways:
+
+1. **PowerShell environment variables** (highest priority — they override values from a `.env` file)
 
 ```powershell
 # Set custom Ollama server (default: http://localhost:11434)
@@ -250,6 +278,18 @@ $env:OLLAMA_TIMEOUT_SECONDS="60"
 
 # Then run triage
 .\.venv\Scripts\python.exe -m src.main fixtures\sample_incidents\incident_001
+```
+
+2. **`.env` file** in the current working directory (loaded automatically; use this when you do not want to set variables in the shell)
+
+Shell environment variables take priority over `.env`: if both set the same variable, the process environment wins.
+
+Example `.env`:
+
+```env
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
+OLLAMA_TIMEOUT_SECONDS=60
 ```
 
 ## CLI Reference

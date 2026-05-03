@@ -12,7 +12,8 @@ from src.llm.ollama_client import (
 )
 
 
-def test_load_ollama_config_defaults(monkeypatch):
+def test_load_ollama_config_defaults(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_TIMEOUT_SECONDS", raising=False)
@@ -35,10 +36,53 @@ def test_load_ollama_config_override(monkeypatch):
     assert cfg.timeout_seconds == 12.5
 
 
-def test_load_ollama_config_invalid_timeout(monkeypatch):
+def test_load_ollama_config_invalid_timeout(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "not-a-number")
     cfg = load_ollama_config_from_env()
     assert cfg.timeout_seconds == 30.0
+
+
+def test_load_ollama_config_from_dotenv_when_env_absent(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_TIMEOUT_SECONDS", raising=False)
+
+    (tmp_path / ".env").write_text(
+        "OLLAMA_BASE_URL=http://dotenv-host:11434\n"
+        "OLLAMA_MODEL=llama3.1:8b\n"
+        "OLLAMA_TIMEOUT_SECONDS=45\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_ollama_config_from_env()
+    assert cfg.base_url == "http://dotenv-host:11434"
+    assert cfg.model == "llama3.1:8b"
+    assert cfg.timeout_seconds == 45.0
+
+
+def test_load_ollama_config_process_env_overrides_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_TIMEOUT_SECONDS", raising=False)
+
+    (tmp_path / ".env").write_text(
+        "OLLAMA_BASE_URL=http://dotenv-only:11434\n"
+        "OLLAMA_MODEL=model-from-dotenv\n"
+        "OLLAMA_TIMEOUT_SECONDS=99\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OLLAMA_MODEL", "model-from-shell")
+
+    cfg = load_ollama_config_from_env()
+    assert cfg.base_url == "http://dotenv-only:11434"
+    assert cfg.model == "model-from-shell"
+    assert cfg.timeout_seconds == 99.0
 
 
 def test_generate_with_ollama_returns_content(monkeypatch):

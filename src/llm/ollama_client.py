@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dotenv import find_dotenv, load_dotenv
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +18,7 @@ class OllamaGenerationError(RuntimeError):
 
 
 def load_ollama_config_from_env() -> OllamaConfig:
+    load_dotenv(find_dotenv(usecwd=True), override=False)
     base = os.getenv("OLLAMA_BASE_URL")
     model = os.getenv("OLLAMA_MODEL")
     timeout_raw = os.getenv("OLLAMA_TIMEOUT_SECONDS")
