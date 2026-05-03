@@ -157,26 +157,63 @@ The packager records command exit codes and output even when commands fail. That
 
 ### Interactive CLI
 
-For a user-friendly menu-driven experience, use the interactive CLI:
+The interactive CLI has two modes:
+
+#### Agent workspace shell (default)
+
+Starts a REPL-style shell (`cmd.Cmd`) with prompt `triage>`. Step through agents, inspect shared `TriageState`, ask Ollama-backed questions over the current slice, and export reports—without replacing the one-shot `python -m src.main` workflow.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\interactive_cli.py
 ```
 
-The interactive menu allows you to:
+The REPL prints colored headers and status lines when your terminal supports ANSI (disable with [`NO_COLOR`](https://no-color.org/) in the environment).
 
-1. **Run triage on an existing incident folder** — Analyze an incident package and optionally output traces and reports
-2. **Create an incident package from local repo** — Package local repository artifacts with optional build/test command output
-3. **Create incident package and run triage** — Create a package and immediately run triage (combine options 1 and 2)
-4. **View latest report** — Display the most recently generated triage report
-5. **View trace events for an incident** — Inspect detailed trace events from a triage run
-6. **Evaluate sample fixtures** — Run the full fixture evaluation suite
-7. **Exit** — Close the CLI
+Example session:
 
-**Note**: Ensure Ollama is running (`ollama serve` in a separate terminal) before using options 1, 3, and 6.
+```
+triage> guide
+triage> sample
+triage> load fixtures/sample_incidents/incident_001
+triage> run build
+triage> findings
+triage> ask build Which evidence supports the failure category?
+triage> run infra
+triage> run planner
+triage> actions
+triage> export
+triage> exit
+```
+
+Useful commands include: **`guide`** (user guide and expected incident layout), **`sample`** (writes three ready-made incident folders under `.tmp/sample_input_data` by default; use **`sample --overwrite`** to refresh), `load`, `run coordinator|build|infra|planner|validator|all`, `state`, `artifacts`, `failures`, `findings`, `evidence`, `checks`, `causes`, `actions`, `confidence`, `report`, `trace`, `export`, `inspect <agent> <query>` (deterministic search), and `ask <agent> <question>` (Ollama; agents: `coordinator`, `build`, `infra`, `planner`, `all`). Type `help` in the shell for a short summary.
+
+Generated sample folders include **`incident.json`**, **`build.log`**, **`test-report.txt`**, **`ci.yml`**, **`Dockerfile`**, and **`requirements.txt`**—matching what the tooling expects for demos and coursework.
+
+#### Legacy numbered menu (full-cycle workflows)
+
+Use the original menu-driven flows (create packages, run full LangGraph triage from the menu, view reports/traces, evaluate fixtures):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\interactive_cli.py --menu
+```
+
+The guided menu lists numbered actions (headers use terminal styling when supported):
+
+1. **Analyze an existing incident folder** — Full LangGraph triage with optional traces and reports  
+2. **Create an incident package from a local repo** — Capture artifacts plus optional command output  
+3. **Create a package and run triage** — Combines packaging with an immediate workflow run  
+4. **Generate sample input data files** — Writes three scenario folders with `incident.json`, logs, CI YAML, Dockerfile, and `requirements.txt` (default output under `.tmp/sample_input_data`)  
+5. **View guide and expected input format** — Same reference text as the **`guide`** REPL command  
+6. **View latest report** — Opens the newest Markdown report under `reports/`  
+7. **View trace events for an incident** — Reads `traces/<incident_id>.jsonl`  
+8. **Evaluate built-in sample fixtures** — Runs `scripts/evaluate_fixtures.py`  
+9. **Exit**
+
+**Note**: Ensure Ollama is running (`ollama serve` in a separate terminal) before using SLM-backed workspace commands (`run …`, `ask …`), guided menu options **1**, **3**, and **8**, or the main CLI triage command.
 
 Default paths used:
 - Incident packages: `.tmp/incidents`
+- Generated sample incidents (menu option 4 / REPL `sample`): `.tmp/sample_input_data`
 - Traces: `traces`
 - Reports: `reports`
 - Fixtures: `fixtures/sample_incidents`
