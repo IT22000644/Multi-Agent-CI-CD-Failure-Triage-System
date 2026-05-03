@@ -21,6 +21,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.cli_ui import (  # noqa: E402
+    Spinner,
+    ascii_panel,
+    ascii_rule,
+    explain_exception,
+    filter_findings_by_text,
+    filter_observed_failures,
+    find_evidence_by_id,
+    format_evidence_ids_for_failure,
+    format_root_cause_block,
+    format_summary_table,
+    format_trace_timeline,
+    severity_label,
+    tour_steps,
+    welcome_screen,
+)
 from scripts.create_incident import create_incident_package  # noqa: E402
 from src.agents.build_test_analyzer_agent import (  # noqa: E402
     BuildTestAnalyzerInput,
@@ -76,33 +92,24 @@ def _style(text: str, *styles: str) -> str:
 
 
 def _header(title: str, subtitle: str | None = None) -> str:
-    width = 72
-    top = _style("╭" + "─" * (width - 2) + "╮", Color.CYAN)
-    bottom = _style("╰" + "─" * (width - 2) + "╯", Color.CYAN)
-    title_line = f" {title} ".center(width - 2)
-    edge = _style("│", Color.CYAN)
-    lines = [top, edge + _style(title_line, Color.BOLD) + edge]
-    if subtitle:
-        subtitle_line = f" {subtitle} ".center(width - 2)
-        lines.append(edge + _style(subtitle_line, Color.DIM) + edge)
-    lines.append(bottom)
-    return "\n".join(lines)
+    body: list[str] = [subtitle] if subtitle else []
+    return ascii_panel(title, body if body else [" "])
 
 
 def _section(title: str) -> str:
-    return _style(f"\n▌ {title}", Color.BOLD, Color.CYAN)
+    return "\n" + ascii_rule("=") + "\n" + _style(title, Color.BOLD, Color.CYAN)
 
 
 def _success(message: str) -> str:
-    return f"{_style('✓', Color.GREEN)} {message}"
+    return f"{_style('[ok]', Color.GREEN)} {message}"
 
 
 def _warning(message: str) -> str:
-    return f"{_style('!', Color.YELLOW)} {message}"
+    return f"{_style('[!]', Color.YELLOW)} {message}"
 
 
 def _error(message: str) -> str:
-    return f"{_style('Error:', Color.RED, Color.BOLD)} {message}"
+    return f"{_style('[err]', Color.RED, Color.BOLD)} {message}"
 
 
 def _path_hint(path: Path) -> str:
@@ -143,6 +150,8 @@ class InteractiveSession:
     state: TriageState | None = None
     trace_dir: Path = field(default_factory=lambda: Path("traces"))
     report_dir: Path = field(default_factory=lambda: Path("reports"))
+    verbose: bool = False
+    investigate_step: int = 0
 
 
 def format_state_summary(state: TriageState) -> str:
@@ -186,14 +195,15 @@ def format_findings(state: TriageState) -> str:
     return "\n".join(sections)
 
 
-def format_evidence(state: TriageState) -> str:
+def format_evidence(state: TriageState, *, verbose: bool = False) -> str:
     if not state.evidence:
         return "(no evidence)"
     lines: list[str] = []
+    cap = 480 if verbose else 120
     for e in state.evidence:
         snippet = e.snippet.replace("\n", " ")
-        if len(snippet) > 120:
-            snippet = snippet[:117] + "..."
+        if len(snippet) > cap:
+            snippet = snippet[: cap - 3] + "..."
         lines.append(
             f"{e.evidence_id} | artifact={e.artifact_name} | agent={e.agent_name.value} | "
             f"supports={e.supports or 'N/A'} | loc={e.location or 'N/A'}"
@@ -887,10 +897,13 @@ def session_perform_load(session: InteractiveSession, incident_raw: str) -> tupl
     try:
         session.incident_dir = path
         inp = CoordinatorInput(incident_dir=path, trace_dir=trace_abs)
-        session.state = initialize_triage_state(inp)
+        with Spinner("load: coordinator + artifacts (Ollama)"):
+            session.state = initialize_triage_state(inp)
     except Exception as exc:
         session.state = None
-        return False, f"Load failed: {exc}"
+        title, hints = explain_exception(exc)
+        hint_lines = "\n".join(f"  -> {h}" for h in hints)
+        return False, f"{title}\n({type(exc).__name__}: {exc})\n{hint_lines}"
 
     acount = len(session.state.artifacts)
     title = session.state.metadata.title or "(no title)"
@@ -908,9 +921,12 @@ def session_run_coordinator(session: InteractiveSession) -> tuple[bool, str]:
     trace_abs.mkdir(parents=True, exist_ok=True)
     try:
         inp = CoordinatorInput(incident_dir=session.incident_dir, trace_dir=trace_abs)
-        session.state = run_coordinator(inp)
+        with Spinner("coordinator: loading artifacts + incident context (Ollama)"):
+            session.state = run_coordinator(inp)
     except Exception as exc:
-        return False, f"Coordinator failed: {exc}"
+        title, hints = explain_exception(exc)
+        hint_lines = "\n".join(f"  -> {h}" for h in hints)
+        return False, f"{title}\n({type(exc).__name__}: {exc})\n{hint_lines}"
     sid = session.state.metadata.incident_id
     n_art = len(session.state.artifacts)
     return True, (
@@ -920,10 +936,7 @@ def session_run_coordinator(session: InteractiveSession) -> tuple[bool, str]:
 
 
 class AgentWorkspaceShell(cmd.Cmd):
-    intro = (
-        f"{_header('Multi-Agent CI/CD Triage Workspace', 'Type help for commands')}\n"
-        f"{_warning('Ensure Ollama is running for run/ask commands.')}\n"
-    )
+    intro = ""
     prompt = _style("triage", Color.BOLD, Color.CYAN) + _style("> ", Color.DIM)
     repeat_empty = False
 
@@ -938,11 +951,15 @@ class AgentWorkspaceShell(cmd.Cmd):
             print("^C")
             return False
         except Exception as exc:
-            print(f"Error: {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(title))
+            print(f"({type(exc).__name__}: {exc})")
+            for h in hints:
+                print(f"  -> {h}")
             return False
 
     def default(self, line: str) -> None:
-        print(f"Unknown command: {line!r}. Type help.")
+        print(f"Unknown command: {line!r}. Try:  help  |  tour  |  load  |  summary")
 
     def emptyline(self) -> bool:
         return False
@@ -951,23 +968,48 @@ class AgentWorkspaceShell(cmd.Cmd):
         if arg:
             super().do_help(arg)
             return
-        print(
-            _section("Workspace Commands")
-            + "\n"
-            "  load <incident_dir>     — coordinator init only\n"
-            "  run coordinator|build|infra|planner|validator|all\n"
-            "  state | artifacts | failures | findings | evidence | checks\n"
-            "  causes | actions | confidence | report | trace | export\n"
-            "  inspect <agent> <query> — search state (no LLM)\n"
-            "  ask <agent> <question>   — Ollama Q&A over state slice\n"
-            "  guide                   — show user guide and input format\n"
-            "  sample                  — generate sample incident input folders\n"
-            "  Agents: coordinator | build | infra | planner | all\n"
-            "  exit | quit             — leave shell\n"
-            + _section("Guided Menu")
-            + "\n"
-            f"  Run: {sys.argv[0]} --menu\n"
-        )
+        lines = [
+            "Core:",
+            "  load <incident_dir>        attach package (aliases: l)",
+            "  run coordinator|build|infra|planner|validator|all   (alias: r)",
+            "  summary                    concise triage + root cause + fixes",
+            "  investigate [next|back|reset]   step through failures -> remediation",
+            "  timeline [N]              last N trace events (default ~40)",
+            "  find failures [text]      filter observed failures",
+            "  find findings [text]      filter findings",
+            "  show evidence <id>        one evidence item (longer snippet if verbose on)",
+            "",
+            "State views:",
+            "  state | artifacts | failures | findings | evidence [-v] | checks",
+            "  causes | actions | confidence | report | trace | export",
+            "",
+            "LLM / search:",
+            "  inspect <agent> <query>   substring search (no Ollama)",
+            "  ask <agent> <question>    Ollama Q&A — agents: coordinator|build|infra|planner|all",
+            "",
+            "Session:",
+            "  set verbose on|off        longer evidence snippets in evidence / investigate",
+            "  set traces <path>         JSONL trace output directory",
+            "  set reports <path>        export directory for reports",
+            "  welcome | tour | menu | guide | sample",
+            "",
+            "Examples:",
+            "  load fixtures/sample_incidents/incident_001",
+            "  run all",
+            "  summary",
+            "  find failures environment",
+            "  ask build What is the primary symptom?",
+            "",
+            "  exit | quit",
+            f"  Full menu:  {sys.argv[0]} --menu",
+        ]
+        print(ascii_panel("triage> help", lines))
+
+    def do_l(self, arg: str) -> None:
+        self.do_load(arg)
+
+    def do_r(self, arg: str) -> None:
+        self.do_run(arg)
 
     def do_EOF(self, arg: str) -> bool:
         print()
@@ -995,6 +1037,215 @@ class AgentWorkspaceShell(cmd.Cmd):
     def do_guide(self, arg: str) -> None:
         print(guide_text())
 
+    def do_welcome(self, arg: str) -> None:
+        print(welcome_screen())
+
+    def do_tour(self, arg: str) -> None:
+        for title, bullets in tour_steps():
+            print(ascii_panel(title, bullets))
+
+    def do_menu(self, arg: str) -> None:
+        lines = [
+            "A) sample  ->  load <path>  ->  run all  ->  summary  ->  export",
+            "B) inspect <agent> <keyword>  — search loaded state (no LLM)",
+            "C) ask planner <question>     — Ollama Q&A on planner slice",
+            "D) timeline                   — trace of agent/tool steps",
+            "E) investigate next           — walk through triage layers",
+            "",
+            f"Full-screen menu:  {sys.argv[0]} --menu",
+        ]
+        print(ascii_panel("Common workflows", lines))
+
+    def do_summary(self, arg: str) -> None:
+        if self.session.state is None:
+            print("No state loaded.")
+            return
+        s = self.session.state
+        print(format_summary_table(s))
+        print()
+        print(format_root_cause_block(s))
+        print()
+        print(f"Failure-linked evidence: {format_evidence_ids_for_failure(s)}")
+
+    def do_timeline(self, arg: str) -> None:
+        limit = 40
+        if arg.strip().isdigit():
+            limit = max(5, min(200, int(arg.strip())))
+        events: list[dict[str, Any]] = []
+        trace_abs = _repo_path(self.session.trace_dir)
+        iid = self.session.state.metadata.incident_id if self.session.state else None
+        if iid:
+            tf = find_latest_trace_file(trace_abs, iid)
+            if tf:
+                events = _trace_events_from_jsonl(tf, limit=max(120, limit * 3))
+        if not events and self.session.state and self.session.state.trace_events:
+            events = [e.model_dump(mode="json") for e in self.session.state.trace_events]
+        if not events:
+            print(
+                "No timeline data. Load an incident, run agents, or check trace_dir "
+                f"({self.session.trace_dir})."
+            )
+            return
+        print(format_trace_timeline(events, limit=limit))
+
+    def do_investigate(self, arg: str) -> None:
+        parts = arg.strip().split()
+        if self.session.state is None:
+            print("No state loaded.")
+            return
+        sub = parts[0].lower() if parts else ""
+        if sub == "next":
+            self.session.investigate_step = min(4, self.session.investigate_step + 1)
+        elif sub == "back":
+            self.session.investigate_step = max(0, self.session.investigate_step - 1)
+        elif sub == "reset":
+            self.session.investigate_step = 0
+        elif sub in ("help", "?"):
+            print("usage: investigate [next | back | reset]")
+            return
+        elif sub:
+            print("usage: investigate [next | back | reset]")
+            return
+        self._print_investigate_step()
+
+    def _print_investigate_step(self) -> None:
+        s = self.session.state
+        if s is None:
+            return
+        step = self.session.investigate_step
+        labels = ["Overview", "Observed failures", "Findings", "Evidence headlines", "Remediation"]
+        title = f"Step {step + 1}/5 — {labels[step]}"
+        lines: list[str] = []
+        if step == 0:
+            lines.extend(format_summary_table(s).split("\n"))
+            lines.append("")
+            lines.extend(format_root_cause_block(s).split("\n"))
+            lines.append("")
+            lines.append(f"Failure-linked evidence ids: {format_evidence_ids_for_failure(s)}")
+        elif step == 1:
+            if not s.observed_failures:
+                lines.append("(no observed failures — run build)")
+            for i, fail in enumerate(s.observed_failures, 1):
+                eids = ", ".join(fail.evidence_ids) if fail.evidence_ids else "(none)"
+                lines.append(f"{i}. [{fail.category.value}] {fail.summary}")
+                lines.append(f"   source={fail.source_artifact or 'n/a'}  evidence={eids}")
+        elif step == 2:
+            all_f = s.build_test_findings + s.config_findings + s.dependency_findings
+            if not all_f:
+                lines.append("(no findings — run build / infra)")
+            for f in all_f[:15]:
+                lines.append(
+                    f"{f.finding_id} | {f.category.value} | "
+                    f"{severity_label(f.severity.value)} | {f.summary[:72]}"
+                )
+            if len(all_f) > 15:
+                lines.append(f"... ({len(all_f) - 15} more — use findings)")
+        elif step == 3:
+            cap = 12
+            lines.append(
+                f"Up to {cap} items (set verbose on + evidence -v for longer snippets)."
+            )
+            for e in s.evidence[:cap]:
+                sn = e.snippet.replace("\n", " ")
+                if len(sn) > 72:
+                    sn = sn[:69] + "..."
+                lines.append(f"{e.evidence_id} | {e.agent_name.value} | {sn}")
+        else:
+            lines.extend(format_root_cause_block(s).split("\n"))
+            lines.append("")
+            if s.final_report and s.final_report.executive_summary:
+                lines.append("Executive summary:")
+                es = s.final_report.executive_summary
+                lines.append(es[:400] + ("..." if len(es) > 400 else ""))
+        print(ascii_panel(title, lines))
+        print(
+            _style(
+                "Commands: investigate next | investigate back | investigate reset",
+                Color.DIM,
+            )
+        )
+
+    def do_find(self, arg: str) -> None:
+        parts = arg.strip().split(maxsplit=1)
+        if len(parts) < 1 or parts[0].lower() not in ("failures", "findings"):
+            print("usage: find failures [substring]  |  find findings [substring]")
+            return
+        if self.session.state is None:
+            print("No state loaded.")
+            return
+        kind = parts[0].lower()
+        needle = parts[1] if len(parts) > 1 else ""
+        if kind == "failures":
+            rows = filter_observed_failures(self.session.state, needle)
+            if not rows:
+                print("(no matches)")
+                return
+            for i, fail in enumerate(rows, 1):
+                print(
+                    f"{i}. [{fail.category.value}] {fail.summary}\n"
+                    f"   evidence: {', '.join(fail.evidence_ids) or '(none)'}"
+                )
+        else:
+            rows = filter_findings_by_text(self.session.state, needle)
+            if not rows:
+                print("(no matches)")
+                return
+            for i, f in enumerate(rows, 1):
+                print(
+                    f"{i}. {f.finding_id} | {f.category.value} | "
+                    f"{severity_label(f.severity.value)} | {f.summary}"
+                )
+
+    def do_show(self, arg: str) -> None:
+        # Cmd passes only text after the command name (e.g. "evidence ev-001").
+        parts = arg.strip().split()
+        if len(parts) < 2 or parts[0].lower() != "evidence":
+            print("usage: show evidence <evidence_id>")
+            return
+        if self.session.state is None:
+            print("No state loaded.")
+            return
+        eid = parts[1].strip()
+        item = find_evidence_by_id(self.session.state, eid)
+        if item is None:
+            print(_error(f"No evidence with id {eid!r}. Try:  evidence"))
+            return
+        cap = 2000 if self.session.verbose else 600
+        sn = item.snippet.replace("\n", " ")
+        if len(sn) > cap:
+            sn = sn[: cap - 3] + "..."
+        body = [
+            f"id={item.evidence_id}  artifact={item.artifact_name}  agent={item.agent_name.value}",
+            f"supports={item.supports or 'N/A'}  location={item.location or 'N/A'}",
+            "",
+            sn,
+        ]
+        print(ascii_panel(f"Evidence {item.evidence_id}", body))
+
+    def do_set(self, arg: str) -> None:
+        t = arg.strip()
+        if not t:
+            print("usage: set verbose on|off  |  set traces <path>  |  set reports <path>")
+            return
+        low = t.lower()
+        if low.startswith("verbose"):
+            rest = t[7:].strip().lower()
+            if not rest:
+                print(f"verbose = {self.session.verbose}")
+                return
+            self.session.verbose = rest in ("on", "true", "1", "yes")
+            print(_success(f"verbose = {self.session.verbose}"))
+            return
+        if low.startswith("traces "):
+            self.session.trace_dir = Path(t[7:].strip())
+            print(_success(f"trace_dir = {self.session.trace_dir}"))
+            return
+        if low.startswith("reports "):
+            self.session.report_dir = Path(t[8:].strip())
+            print(_success(f"report_dir = {self.session.report_dir}"))
+            return
+        print("usage: set verbose on|off  |  set traces <path>  |  set reports <path>")
+
     def do_sample(self, arg: str) -> None:
         output_root = _repo_path(DEFAULT_GENERATED_SAMPLES_DIR)
         overwrite = arg.strip().lower() in {"--overwrite", "overwrite", "-f"}
@@ -1010,9 +1261,11 @@ class AgentWorkspaceShell(cmd.Cmd):
     def do_run(self, arg: str) -> None:
         parts = arg.strip().split(maxsplit=1)
         if not parts:
-            print("usage: run coordinator|build|infra|planner|validator|all")
+            print("usage: run coordinator|build|infra|planner|validator|all|pipeline")
             return
         sub = parts[0].lower()
+        if sub in ("pipeline", "full"):
+            sub = "all"
         handlers = {
             "coordinator": self._run_coordinator_step,
             "build": self._run_build_step,
@@ -1040,9 +1293,10 @@ class AgentWorkspaceShell(cmd.Cmd):
             print("No state. Use load <incident_dir> first.")
             return
         try:
-            self.session.state = run_build_test_analyzer(
-                BuildTestAnalyzerInput(state=self.session.state)
-            )
+            with Spinner("build/test analyzer (parse logs + Ollama)"):
+                self.session.state = run_build_test_analyzer(
+                    BuildTestAnalyzerInput(state=self.session.state)
+                )
             s = self.session.state
             print(
                 f"Build/test analyzer done.\n"
@@ -1051,16 +1305,20 @@ class AgentWorkspaceShell(cmd.Cmd):
                 f"Evidence items (total): {len(s.evidence)}"
             )
         except Exception as exc:
-            print(f"Build/test analyzer failed: {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(f"Build/test analyzer: {title}"))
+            for h in hints:
+                print(f"  -> {h}")
 
     def _run_infra_step(self) -> None:
         if self.session.state is None:
             print("No state. Use load <incident_dir> first.")
             return
         try:
-            self.session.state = run_infra_config_analyzer(
-                InfraConfigAnalyzerInput(state=self.session.state)
-            )
+            with Spinner("infra/config analyzer (CI + Dockerfile + deps + Ollama)"):
+                self.session.state = run_infra_config_analyzer(
+                    InfraConfigAnalyzerInput(state=self.session.state)
+                )
             s = self.session.state
             print(
                 f"Infra/config analyzer done.\n"
@@ -1069,16 +1327,20 @@ class AgentWorkspaceShell(cmd.Cmd):
                 f"Validated checks (total): {len(s.validated_checks)}"
             )
         except Exception as exc:
-            print(f"Infra analyzer failed: {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(f"Infra analyzer: {title}"))
+            for h in hints:
+                print(f"  -> {h}")
 
     def _run_planner_step(self) -> None:
         if self.session.state is None:
             print("No state. Use load <incident_dir> first.")
             return
         try:
-            self.session.state = run_remediation_planner(
-                RemediationPlannerInput(state=self.session.state)
-            )
+            with Spinner("remediation planner (Ollama + deterministic plan)"):
+                self.session.state = run_remediation_planner(
+                    RemediationPlannerInput(state=self.session.state)
+                )
             s = self.session.state
             print(
                 f"Remediation planner done.\n"
@@ -1087,7 +1349,10 @@ class AgentWorkspaceShell(cmd.Cmd):
                 f"Confidence scores: {len(s.confidence_scores)}"
             )
         except Exception as exc:
-            print(f"Planner failed: {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(f"Planner: {title}"))
+            for h in hints:
+                print(f"  -> {h}")
 
     def _run_validator_step(self) -> None:
         if self.session.state is None:
@@ -1102,7 +1367,10 @@ class AgentWorkspaceShell(cmd.Cmd):
                 f"errors: {len(result.errors)} | warnings: {len(result.warnings)}"
             )
         except Exception as exc:
-            print(f"Validator failed: {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(f"Validator: {title}"))
+            for h in hints:
+                print(f"  -> {h}")
 
     def _run_all_steps(self) -> None:
         if self.session.state is None:
@@ -1117,9 +1385,13 @@ class AgentWorkspaceShell(cmd.Cmd):
                     incident_dir=self.session.incident_dir,
                     trace_dir=trace_abs,
                 )
-                self.session.state = initialize_triage_state(inp)
+                with Spinner("coordinator: initialize triage state (Ollama)"):
+                    self.session.state = initialize_triage_state(inp)
             except Exception as exc:
-                print(f"Coordinator init failed: {exc}")
+                title, hints = explain_exception(exc)
+                print(_error(title))
+                for h in hints:
+                    print(f"  -> {h}")
                 return
 
         for label, fn in (
@@ -1179,7 +1451,11 @@ class AgentWorkspaceShell(cmd.Cmd):
         if self.session.state is None:
             print("No state loaded.")
             return
-        print(format_evidence(self.session.state))
+        parts = arg.strip().split()
+        verbose = self.session.verbose
+        if "-v" in parts or "--verbose" in parts:
+            verbose = True
+        print(format_evidence(self.session.state, verbose=verbose))
 
     def do_checks(self, arg: str) -> None:
         if self.session.state is None:
@@ -1294,10 +1570,14 @@ class AgentWorkspaceShell(cmd.Cmd):
             print("No state loaded.")
             return
         try:
-            reply = answer_agent_question(agent_key, question, self.session.state)
+            with Spinner("Ollama / ask"):
+                reply = answer_agent_question(agent_key, question, self.session.state)
             print(reply)
         except Exception as exc:
-            print(f"ask failed (Ollama or parsing): {exc}")
+            title, hints = explain_exception(exc)
+            print(_error(f"ask: {title}"))
+            for h in hints:
+                print(f"  -> {h}")
 
 
 def action_run_triage_existing() -> None:
@@ -1594,7 +1874,7 @@ def legacy_menu_main() -> int:
         "9": lambda: None,
     }
 
-    print(_header("Welcome", "Multi-Agent CI/CD Failure Triage System"))
+    print(welcome_screen())
     print(_warning("Ensure Ollama is running before using options 1, 3, and 8."))
 
     while True:
@@ -1618,8 +1898,16 @@ def legacy_menu_main() -> int:
     return 0
 
 
-def workspace_main() -> int:
-    AgentWorkspaceShell().cmdloop()
+def workspace_main(*, show_welcome: bool = True) -> int:
+    shell = AgentWorkspaceShell()
+    if show_welcome:
+        shell.intro = (
+            welcome_screen()
+            + "\n"
+            + _warning("Ollama must be running for run / ask.")
+            + "\nType  tour  for a walkthrough,  help  for commands.\n"
+        )
+    shell.cmdloop()
     print(_success("Goodbye."))
     return 0
 
@@ -1631,10 +1919,15 @@ def main() -> int:
         action="store_true",
         help="Guided numbered menu (full-cycle workflows, guide, sample data).",
     )
+    parser.add_argument(
+        "--no-welcome",
+        action="store_true",
+        help="Skip the ASCII welcome banner when starting the REPL (automation-friendly).",
+    )
     args = parser.parse_args()
     if args.menu:
         return legacy_menu_main()
-    return workspace_main()
+    return workspace_main(show_welcome=not args.no_welcome)
 
 
 if __name__ == "__main__":
