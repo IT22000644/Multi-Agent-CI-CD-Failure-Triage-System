@@ -86,6 +86,7 @@ def remediation_planner_node(state: WorkflowState) -> WorkflowState:
 
 
 def state_consistency_validator_node(state: WorkflowState) -> WorkflowState:
+    
     triage_state: TriageState = state["triage_state"]
     trace_dir = state.get("trace_dir")
 
