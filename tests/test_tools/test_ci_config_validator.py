@@ -15,6 +15,7 @@ def _loaded_ci_config(content: str) -> ArtifactRecord:
     )
 
 
+# Helper function to assert that all evidence items that reference findings point to existing findings in the result
 def _assert_evidence_supports_existing_findings(result) -> None:
     finding_ids = {finding.finding_id for finding in result.findings}
     for item in result.evidence:
@@ -22,6 +23,7 @@ def _assert_evidence_supports_existing_findings(result) -> None:
             assert item.supports in finding_ids
 
 
+# Test cases for the CI config validator
 def test_fixture_missing_database_url_is_detected() -> None:
     artifacts = load_incident_artifacts("fixtures/sample_incidents/incident_001")
 
@@ -43,7 +45,7 @@ def test_fixture_missing_database_url_is_detected() -> None:
         for check in result.validated_checks
     )
 
-
+# Test that missing CI config file is reported as a failed availability check with an appropriate error message
 def test_missing_ci_config_returns_failed_availability_check() -> None:
     result = validate_ci_config(None)
 
@@ -52,6 +54,7 @@ def test_missing_ci_config_returns_failed_availability_check() -> None:
     assert any(not check.passed for check in result.validated_checks)
 
 
+# Test that invalid YAML in the CI config file is reported as a CI config issue finding with an appropriate error message, and that the evidence supports the finding
 def test_invalid_yaml_creates_ci_config_issue_finding() -> None:
     ci_config = _loaded_ci_config("name: ci\njobs: [\n")
 
@@ -62,6 +65,7 @@ def test_invalid_yaml_creates_ci_config_issue_finding() -> None:
     assert any(not check.passed for check in result.validated_checks)
 
 
+# Test that a workflow with the required DATABASE_URL environment variable passes the required environment variable check and does not produce an environment issue finding
 def test_workflow_with_database_url_passes_required_env_check() -> None:
     ci_config = _loaded_ci_config(
         """name: ci

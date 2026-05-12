@@ -8,6 +8,7 @@ from src.state import FailureCategory, TriageState
 from src.tools import run_deterministic_triage
 
 
+# Helper function to assert that all evidence items that reference findings point to existing findings in the result
 def _assert_evidence_supports_existing_findings(state: TriageState) -> None:
     finding_ids = {
         finding.finding_id
@@ -22,6 +23,7 @@ def _assert_evidence_supports_existing_findings(state: TriageState) -> None:
             assert item.supports in finding_ids
 
 
+#  Test cases for the triage runner
 def test_fixture_produces_populated_triage_state() -> None:
     state = run_deterministic_triage("fixtures/sample_incidents/incident_001")
 
@@ -43,6 +45,7 @@ def test_fixture_produces_populated_triage_state() -> None:
     _assert_evidence_supports_existing_findings(state)
 
 
+# Test that invalid incident.json file causes the incident ID to fall back to "unknown" but does not prevent processing of other artifacts or creation of triage state
 def test_invalid_incident_json_falls_back_to_unknown(tmp_path: Path) -> None:
     d = tmp_path / "incident"
     d.mkdir()
@@ -73,6 +76,7 @@ def test_no_trace_by_default() -> None:
     assert state.trace_events == []
 
 
+# Test that providing a trace directory causes a trace file to be written with the expected events and metadata, and that the triage state is populated with the expected evidence count
 def test_tracing_writes_jsonl_and_populates_state(tmp_path: Path) -> None:
     state = run_deterministic_triage("fixtures/sample_incidents/incident_001", trace_dir=tmp_path)
 

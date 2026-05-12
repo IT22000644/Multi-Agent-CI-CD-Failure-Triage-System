@@ -77,6 +77,7 @@ def _fake_llm_build() -> str:
     )
 
 
+# Helper function to assert that all evidence items that reference findings point to existing findings in the result
 def _minimal_state() -> TriageState:
     meta = IncidentMetadata(incident_id="inc-test", title="T")
     art = ArtifactRecord(

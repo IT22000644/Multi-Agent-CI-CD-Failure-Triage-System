@@ -8,6 +8,7 @@ from src.agents import CoordinatorInput, coordinator_agent, initialize_triage_st
 from src.state import TriageState
 
 
+# Test cases for the coordinator agent
 def test_coordinator_returns_populated_triage_state() -> None:
     input_data = CoordinatorInput(
         incident_dir="fixtures/sample_incidents/incident_001",
@@ -33,7 +34,7 @@ def test_coordinator_supports_tracing(tmp_path: Path) -> None:
     assert state.trace_events
     assert (tmp_path / "incident_001.jsonl").exists()
 
-
+# Test that providing an invalid incident directory path raises a FileNotFoundError
 def test_coordinator_propagates_invalid_path() -> None:
     input_data = CoordinatorInput(incident_dir="does-not-exist")
 
@@ -41,6 +42,7 @@ def test_coordinator_propagates_invalid_path() -> None:
         run_coordinator(input_data)
 
 
+# Test that the coordinator calls the LLM to get incident context and records it as evidence with the expected content
 def test_coordinator_records_llm_incident_context(monkeypatch) -> None:
     from src.agents import coordinator_agent
 
@@ -69,6 +71,7 @@ def test_coordinator_records_llm_incident_context(monkeypatch) -> None:
     assert "Incident context summary" in context_evidence[0].snippet
 
 
+# Test that if the coordinator's call to the LLM returns malformed JSON, a CoordinatorOutputParseError is raised with the original StructuredLLMOutputError as the cause
 def test_coordinator_malformed_json_raises(monkeypatch) -> None:
     from src.agents import coordinator_agent
     from src.llm import StructuredLLMOutputError
@@ -86,6 +89,7 @@ def test_coordinator_malformed_json_raises(monkeypatch) -> None:
     assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
 
 
+# Test that if the coordinator's call to the LLM raises an OllamaGenerationError, it is propagated and not caught as a CoordinatorOutputParseError
 def test_initialize_triage_state_malformed_llm_json_raises_parse_error(monkeypatch) -> None:
     from src.llm import StructuredLLMOutputError
 
@@ -99,6 +103,7 @@ def test_initialize_triage_state_malformed_llm_json_raises_parse_error(monkeypat
     assert isinstance(excinfo.value.__cause__, StructuredLLMOutputError)
 
 
+#  Test that if the coordinator's call to the LLM raises an OllamaGenerationError, it is propagated and not caught as a CoordinatorOutputParseError
 def test_coordinator_ollama_failure_raises(monkeypatch) -> None:
     from src.agents import coordinator_agent
     from src.llm.ollama_client import OllamaGenerationError
